@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Paul R. Decker (KG7HF)
+#
+# The workflow pins each action to a full commit SHA. Dependabot keeps those pins
+# current: when a pinned action has a new release it opens a pull request, which
+# runs the full CI before anything changes.
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

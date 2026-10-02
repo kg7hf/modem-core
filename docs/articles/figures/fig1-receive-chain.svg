@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="800" viewBox="0 0 680 800" role="img" aria-label="MIL-STD-188-110A/B receive signal chain">
+<title>MIL-STD-188-110A/B receive signal chain</title>
+<desc>Vertical pipeline from 48 kHz audio to payload bytes: front end, acquisition, earliest-path anchor, equalizer, soft demapper, deinterleaver, repetition combine, FEC decode, framing.</desc>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#73726c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<style>
+text{font-family:'Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;}
+.t{font-size:14px;font-weight:500;}
+.ts{font-size:12px;font-weight:400;}
+.lbl{font-size:12px;font-weight:400;fill:#444441;}
+.g-f{fill:#F1EFE8;stroke:#5F5E5A;}.g-t{fill:#2C2C2A;}.g-s{fill:#5F5E5A;}
+.te-f{fill:#E1F5EE;stroke:#0F6E56;}.te-t{fill:#04342C;}.te-s{fill:#0F6E56;}
+.pu-f{fill:#EEEDFE;stroke:#534AB7;}.pu-t{fill:#26215C;}.pu-s{fill:#3C3489;}
+</style>
+</defs>
+<rect x="0" y="0" width="680" height="800" fill="#FFFFFF"/>
+<text class="lbl" x="340" y="28" text-anchor="middle" dominant-baseline="central">48 kHz audio in</text>
+<line x1="340" y1="32" x2="340" y2="42" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect class="g-f" x="160" y="44" width="360" height="56" rx="8" stroke-width="1"/>
+<text class="t g-t" x="340" y="67" text-anchor="middle" dominant-baseline="central">Audio front end</text>
+<text class="ts g-s" x="340" y="85" text-anchor="middle" dominant-baseline="central">baseband, matched filter, timing</text>
+<line x1="340" y1="104" x2="340" y2="124" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect class="te-f" x="160" y="128" width="360" height="56" rx="8" stroke-width="1"/>
+<text class="t te-t" x="340" y="151" text-anchor="middle" dominant-baseline="central">Acquisition</text>
+<text class="ts te-s" x="340" y="169" text-anchor="middle" dominant-baseline="central">find preamble, decode mode</text>
+<line x1="340" y1="188" x2="340" y2="208" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect class="te-f" x="160" y="212" width="360" height="56" rx="8" stroke-width="1"/>
+<text class="t te-t" x="340" y="235" text-anchor="middle" dominant-baseline="central">Earliest-path anchor</text>
+<text class="ts te-s" x="340" y="253" text-anchor="middle" dominant-baseline="central">direct path + delay spread</text>
+<line x1="340" y1="272" x2="340" y2="292" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect class="te-f" x="160" y="296" width="360" height="56" rx="8" stroke-width="1"/>
+<text class="t te-t" x="340" y="319" text-anchor="middle" dominant-baseline="central">Equalizer</text>
+<text class="ts te-s" x="340" y="337" text-anchor="middle" dominant-baseline="central">adaptive DFE / CIR-MMSE / turbo</text>
+<line x1="340" y1="356" x2="340" y2="376" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect class="te-f" x="160" y="380" width="360" height="56" rx="8" stroke-width="1"/>
+<text class="t te-t" x="340" y="403" text-anchor="middle" dominant-baseline="central">Soft demapper</text>
+<text class="ts te-s" x="340" y="421" text-anchor="middle" dominant-baseline="central">dewhiten, 8-PSK to LLRs</text>
+<line x1="340" y1="440" x2="340" y2="460" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect class="pu-f" x="160" y="464" width="360" height="56" rx="8" stroke-width="1"/>
+<text class="t pu-t" x="340" y="487" text-anchor="middle" dominant-baseline="central">Deinterleaver</text>
+<text class="ts pu-s" x="340" y="505" text-anchor="middle" dominant-baseline="central">channel to coder order</text>
+<line x1="340" y1="524" x2="340" y2="544" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect class="pu-f" x="160" y="548" width="360" height="56" rx="8" stroke-width="1"/>
+<text class="t pu-t" x="340" y="571" text-anchor="middle" dominant-baseline="central">Repetition combine</text>
+<text class="ts pu-s" x="340" y="589" text-anchor="middle" dominant-baseline="central">300 / 150 bps copies</text>
+<line x1="340" y1="608" x2="340" y2="628" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect class="pu-f" x="160" y="632" width="360" height="56" rx="8" stroke-width="1"/>
+<text class="t pu-t" x="340" y="655" text-anchor="middle" dominant-baseline="central">FEC decode</text>
+<text class="ts pu-s" x="340" y="673" text-anchor="middle" dominant-baseline="central">Viterbi or SISO turbo</text>
+<line x1="340" y1="692" x2="340" y2="712" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect class="g-f" x="160" y="716" width="360" height="56" rx="8" stroke-width="1"/>
+<text class="t g-t" x="340" y="739" text-anchor="middle" dominant-baseline="central">Framing and EOM</text>
+<text class="ts g-s" x="340" y="757" text-anchor="middle" dominant-baseline="central">find EOM, pack octets</text>
+<line x1="340" y1="776" x2="340" y2="786" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="lbl" x="340" y="795" text-anchor="middle" dominant-baseline="central">payload bytes out</text>
+</svg>

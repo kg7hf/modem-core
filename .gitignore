@@ -1,0 +1,16 @@
+# Build output
+build*/
+*.o
+*.obj
+*.a
+*.exe
+
+# Instrumentation / tooling output
+*.su
+*.gcno
+*.gcda
+*.gcov
+coverage.info
+
+# Demo output
+*.wav

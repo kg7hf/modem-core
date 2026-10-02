@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Paul R. Decker (KG7HF)
+#
+# Each job maps onto a claim the articles make: it builds clean and warning-free,
+# it passes the golden tests, it stays simple (lizard), it is formatted and
+# analyzed (clang-format, clang-tidy), it is covered (gcov), and its stack is
+# bounded (-fstack-usage). The green checkmark is the evidence.
+#
+# Supply chain: the token is read-only, actions are pinned to a full commit SHA
+# (Dependabot proposes updates, see .github/dependabot.yml), and pip tools are
+# pinned to a version.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: build + golden tests (${{ matrix.compiler }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Clang 19, not 18: libstdc++ only enables std::expected for a compiler that
+      # reports full C++20 concepts, and Clang 18 does not.
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-14 clang-19 ninja-build cmake
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            echo "CXX=g++-14"     >> "$GITHUB_ENV"
+          else
+            echo "CXX=clang++-19" >> "$GITHUB_ENV"
+          fi
+      - run: cmake -B build -G Ninja -DMODEM_WERROR=ON
+      - run: cmake --build build
+      - name: Golden tests
+        run: ctest --test-dir build --output-on-failure
+
+  format:
+    name: clang-format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Pinned to the same major version as the Clang toolchain: formatters
+      # disagree across versions, so a "clean" tree is only clean for one of them.
+      - run: sudo apt-get update && sudo apt-get install -y clang-format-19
+      - run: clang-format-19 --dry-run --Werror $(find modem tests -name '*.cpp' -o -name '*.hpp')
+
+  tidy:
+    name: clang-tidy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y g++-14 clang-tidy-19 ninja-build cmake
+      - run: cmake -B build -G Ninja -DMODEM_CLANG_TIDY=ON -DCMAKE_CXX_COMPILER=g++-14
+      - name: clang-tidy (reports Core Guidelines findings)
+        run: cmake --build build
+
+  complexity:
+    name: lizard (cyclomatic complexity)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: pipx install lizard==1.24.0
+      # One command reports every function and fails only above the CCN 25 gate
+      # (lizard's default threshold is 15, and its exit code follows the threshold).
+      - name: Report and gate at CCN 25
+        run: lizard modem -l cpp --CCN 25
+
+  coverage:
+    name: coverage (gcov)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y g++-14 gcovr ninja-build cmake
+      - run: cmake -B build -G Ninja -DMODEM_COVERAGE=ON -DCMAKE_CXX_COMPILER=g++-14
+      - run: cmake --build build && ctest --test-dir build
+      - name: Coverage summary
+        run: gcovr --root . --gcov-executable gcov-14 --exclude tests --print-summary
+
+  stack-usage:
+    name: bounded stack (-fstack-usage)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y g++-14 ninja-build cmake
+      - run: cmake -B build -G Ninja -DMODEM_STACK_USAGE=ON -DCMAKE_CXX_COMPILER=g++-14
+      - run: cmake --build build
+      - name: No function's stack frame exceeds 4 KB
+        run: python3 tools/check_stack_usage.py build 4096

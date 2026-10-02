@@ -1,0 +1,79 @@
+# modem-core static analysis: the functional half of the rules (the C++ Core Guidelines).
+# Run against C++23. Reported as warnings to start; ratchet individual checks into
+# WarningsAsErrors as the tree is cleaned, so the build fails on a regression.
+#
+# Notes:
+#  - modernize-use-trailing-return-type is pure style noise (fights the declaration style); off.
+#  - bugprone-easily-swappable-parameters is noisy for DSP kernels; off.
+#  - cppcoreguidelines-avoid-magic-numbers and the pro-bounds-* family stay ON as warnings
+#    (domain constants, and checked indexing that would need the GSL); review, don't auto-fail.
+#  - Headers are checked under modem/ and tests/. clang-tidy takes the header filter from the
+#    .clang-tidy above the directory it runs in, not above the file it checks. Run clang-tidy
+#    from the repo root or an in-tree build directory (build*/, where MODEM_CLANG_TIDY=ON runs
+#    it). From anywhere else, pass the same --header-filter, or no header is checked.
+#
+# Naming, checked by readability-identifier-naming:
+#  - No identifier of ours starts or ends with '_'. aNy_CasE accepts any spelling but still
+#    rejects an edge underscore, so it is the style of every kind that has no other rule:
+#    classes, structs, unions, enums, type aliases, typedefs, template parameters, concepts,
+#    namespaces, macros, variables, parameters, functions, constants and enumerators. The
+#    check skips a kind that has no style, so each of these is listed below. The unit-tag
+#    enumerators keep their SI case (Hz, kHz, MHz, dB, dBm, ...), and class constants stay
+#    plain (pi).
+#  - Private and protected data members are 'm' + CamelCase (mBurstOverflows). Public data
+#    members are plain lower_case. Statics and constants take no prefix.
+#  - The catch-all Constant kind is left unset on purpose: it would take const data members
+#    out of the member rules. Other constants fall back to Variable, which checks the same.
+#  - Use the naming fix-its for reporting only. With the 'm' prefix, clang-tidy 19 reads an
+#    existing leading 'm' as the prefix (maximum_ becomes mAximum).
+#  - -Wreserved-identifier (ExtraArgs) bans __x, _Upper and a global _x, macros included.
+#  - Unit literal suffixes, when they appear, take the unspaced form (operator""_kHz), and two
+#    flags pin it. A space before the suffix (operator"" _kHz) is deprecated, and
+#    -Wdeprecated-literal-operator reports it. With a space, an _Upper suffix (_Hz, _MHz) is a
+#    reserved identifier instead, so -Wreserved-identifier reports that one.
+#  - Every compile-database entry carries the build's -Werror, which would turn these
+#    compiler warnings into errors and fail the run. The -Wno-error= flags in ExtraArgs keep
+#    them warnings, like every other finding here (WarningsAsErrors is empty).
+---
+Checks: >
+  -*,
+  cppcoreguidelines-*,
+  bugprone-*,
+  performance-*,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-use-designated-initializers,
+  -bugprone-easily-swappable-parameters,
+  readability-identifier-naming,
+  clang-diagnostic-reserved-identifier,
+  clang-diagnostic-reserved-macro-identifier,
+  clang-diagnostic-deprecated-literal-operator
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*[/\\](modem|tests)[/\\].*'
+FormatStyle: file
+ExtraArgs: ['-Wreserved-identifier', '-Wno-error=reserved-identifier', '-Wno-error=reserved-macro-identifier',
+            '-Wdeprecated-literal-operator', '-Wno-error=deprecated-literal-operator']
+CheckOptions:
+  readability-identifier-naming.PrivateMemberPrefix: 'm'
+  readability-identifier-naming.PrivateMemberCase: CamelCase
+  readability-identifier-naming.ProtectedMemberPrefix: 'm'
+  readability-identifier-naming.ProtectedMemberCase: CamelCase
+  readability-identifier-naming.PublicMemberCase: lower_case
+  readability-identifier-naming.EnumConstantCase: aNy_CasE
+  readability-identifier-naming.VariableCase: aNy_CasE
+  readability-identifier-naming.ParameterCase: aNy_CasE
+  readability-identifier-naming.FunctionCase: aNy_CasE
+  readability-identifier-naming.GlobalConstantCase: aNy_CasE
+  readability-identifier-naming.LocalConstantCase: aNy_CasE
+  readability-identifier-naming.ClassConstantCase: aNy_CasE
+  readability-identifier-naming.StaticConstantCase: aNy_CasE
+  readability-identifier-naming.ClassCase: aNy_CasE
+  readability-identifier-naming.StructCase: aNy_CasE
+  readability-identifier-naming.UnionCase: aNy_CasE
+  readability-identifier-naming.EnumCase: aNy_CasE
+  readability-identifier-naming.TypeAliasCase: aNy_CasE
+  readability-identifier-naming.TypedefCase: aNy_CasE
+  readability-identifier-naming.TemplateParameterCase: aNy_CasE
+  readability-identifier-naming.ConceptCase: aNy_CasE
+  readability-identifier-naming.NamespaceCase: aNy_CasE
+  readability-identifier-naming.MacroDefinitionCase: aNy_CasE

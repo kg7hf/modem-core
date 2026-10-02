@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="300" viewBox="0 0 680 300" role="img" aria-label="Precision ladder: arithmetic types versus real signal sources">
+<title>Precision ladder: arithmetic types versus real signal sources</title>
+<desc>Horizontal bars comparing usable dynamic range in dB: float64 double 319, float32 144, 24-bit codec 120, 16-bit ADC 98, HF channel 30, low-rate decode threshold 3. float32 already exceeds every real data source.</desc>
+<style>
+text{font-family:'Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;}
+.t{font-size:14px;font-weight:500;fill:#2C2C2A;}
+.ts{font-size:12px;font-weight:400;fill:#5F5E5A;}
+</style>
+<rect x="0" y="0" width="680" height="300" fill="#FFFFFF"/>
+<line x1="200" y1="18" x2="200" y2="278" stroke="#D3D1C7" stroke-width="1"/>
+<rect x="200" y="24" width="360" height="28" rx="4" fill="#888780"/>
+<text class="t" x="185" y="38" text-anchor="end" dominant-baseline="central">float64 (double)</text>
+<text class="ts" x="566" y="38" text-anchor="start" dominant-baseline="central">~319 dB</text>
+<rect x="200" y="68" width="163" height="28" rx="4" fill="#1D9E75"/>
+<text class="t" x="185" y="82" text-anchor="end" dominant-baseline="central">float32 (our default)</text>
+<text class="ts" x="369" y="82" text-anchor="start" dominant-baseline="central">~144 dB</text>
+<rect x="200" y="112" width="135" height="28" rx="4" fill="#888780"/>
+<text class="t" x="185" y="126" text-anchor="end" dominant-baseline="central">24-bit audio codec</text>
+<text class="ts" x="341" y="126" text-anchor="start" dominant-baseline="central">~120 dB</text>
+<rect x="200" y="156" width="111" height="28" rx="4" fill="#888780"/>
+<text class="t" x="185" y="170" text-anchor="end" dominant-baseline="central">16-bit ADC</text>
+<text class="ts" x="317" y="170" text-anchor="start" dominant-baseline="central">~98 dB</text>
+<rect x="200" y="200" width="34" height="28" rx="4" fill="#D85A30"/>
+<text class="t" x="185" y="214" text-anchor="end" dominant-baseline="central">HF channel, good day</text>
+<text class="ts" x="240" y="214" text-anchor="start" dominant-baseline="central">~30 dB</text>
+<rect x="200" y="244" width="5" height="28" rx="2" fill="#D85A30"/>
+<text class="t" x="185" y="258" text-anchor="end" dominant-baseline="central">low-rate decode threshold</text>
+<text class="ts" x="211" y="258" text-anchor="start" dominant-baseline="central">~3 dB</text>
+</svg>
