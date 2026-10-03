@@ -28,7 +28,7 @@ WHAT LIVES HERE
 ---------------
   encode_rate_half / encode_repeated_pairs / encode_tail_biting_punctured_3_4
       the three transmit encodings (plain, repeat xN for low rates, punctured 3/4).
-  viterbi_decode_rate_half (decode_with_end_state)
+  viterbi_decode_rate_half
       whole-buffer maximum-likelihood decode: add-compare-select + traceback.
   StreamingViterbiK7
       continuous decode with a FIXED traceback window (bits emerge delayed by the

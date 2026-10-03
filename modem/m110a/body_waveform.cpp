@@ -28,12 +28,12 @@ KEY FUNCTIONS
 -------------
   body_block_plan()          THE per-mode geometry table (read this first).
   encode_body_block()        FEC -> interleave -> map+whiten + insert probes.
-  extract_soft_data()        mirror: dewhiten + soft-demap, skip probes.
+  decode_body_block()        mirror: received symbols back to information bits.
   body_block_soft_metrics()  extract+deinterleave+repetition-combine (no Viterbi), so
                              the receiver can run ONE continuous Viterbi over the burst.
   append_body_eom_and_flush / find_body_eom / pack_body_payload   framing + payload.
   BodyAudioStreamModulator   RRC pulse-shape + 1800 Hz upconvert (stateful, windowed).
-  The receive side (extract_soft_data, body_block_soft_metrics, find_body_eom,
+  The receive side (decode_body_block, body_block_soft_metrics, find_body_eom,
   pack_body_payload) is declared in the header; it arrives with the receiver series.
 
 Teaching walkthrough: modem/m110a/body-waveform-and-scrambler-explainer.md
@@ -253,8 +253,8 @@ Status encode_body_block(BitSpan information_bits, const BodyBlockPlan& plan, Bo
 // Detailed view: encode_coded_bits (rate 1/2 x reps, threading BodyEncodeState) ->
 //   body_interleave -> for each frame emit the unknown data symbols (modified-Gray
 //   mapped + data-randomizer whitening) then the known probe symbols; the last two
-//   frames' probes carry D2/D1 for mid-body mode re-ID. 75 bps takes the Walsh path.
-//   Exact mirror of extract_soft_data.
+//   frames' probes carry D1 then D2 for mid-body mode re-ID. 75 bps takes the Walsh
+//   path. Its receive mirror, decode_body_block, is declared in the header.
 // 5th-grade view: Encode the words, shuffle them, add the secret voice-shuffle, and
 //   drop in the memorized checkpoint phrases.
 // -----------------------------------------------------------------------------

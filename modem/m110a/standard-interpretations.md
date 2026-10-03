@@ -35,8 +35,8 @@ The descriptor table in `modem/common/waveform/waveform.cpp` therefore carries
 two different 4800 rows, and they are two different waveforms:
 
 ```
-{serial_tone, bps4800, psk8, uncoded}                    -> this folder
-{appendix_c,  bps4800, psk8, tail_biting_punctured_3_4}  -> the 110B Appendix C waveform
+{serial_tone, bps4800, psk8, uncoded}                       -> this folder
+{appendix_c,  bps4800, psk8, k7_tail_biting_punctured_3_4}  -> the 110B Appendix C waveform
 ```
 
 There is also an implementation fact that would have forced this even without the

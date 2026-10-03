@@ -7,8 +7,8 @@ transmitter.cpp - transmit-side orchestrator (octets -> 48 kHz audio)
 ================================================================================
 The top of the TX stack, and the exact mirror of the receive chain. Given a mode and
 DTE octets it plans the whole transmission, frames the payload (EOM + flush + block
-padding), prepends the preamble, encodes each body block (one continuous BodyEncode
-State), and renders the symbol stream to real 48 kHz audio - all into caller-owned
+padding), prepends the preamble, encodes each body block (one continuous
+BodyEncodeState), and renders the symbol stream to real 48 kHz audio - all into caller-owned
 buffers, no allocation. A thin orchestrator over body_waveform's building blocks.
   INPUT  : BodyMode + payload octets (LSB-first) + caller scratch.
   OUTPUT : mono 48 kHz waveform.
@@ -114,8 +114,8 @@ Result<BodyTransmissionPlan> body_transmission_plan(BodyMode mode, std::size_t p
 // generate_body_transmission_audio  (render one transmission to audio)
 // -----------------------------------------------------------------------------
 // 50K view: Turn payload octets into a complete 48 kHz waveform, allocation-free.
-// Detailed view: unpack octets LSB-first -> append_body_eom_and_flush -> generate_body
-//   _preamble -> encode_body_block per block (one continuous BodyEncodeState) ->
+// Detailed view: unpack octets LSB-first -> append_body_eom_and_flush ->
+//   generate_body_preamble -> encode_body_block per block (one continuous BodyEncodeState) ->
 //   body_tribits_to_audio (RRC + 1800 Hz). Buffers validated against the plan first.
 // 5th-grade view: Wrap, encode, and play the note as sound, start to finish.
 // -----------------------------------------------------------------------------

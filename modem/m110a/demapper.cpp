@@ -30,7 +30,8 @@ WHAT LIVES HERE
 SIGN CONVENTION (load-bearing)
 ------------------------------
   Positive soft value favors bit 0, negative favors bit 1. Both demappers agree by
-  construction (one_cost - zero_cost / zero_best - one_best). The decoder assumes it.
+  construction (the best 1-cost minus the best 0-cost, or the best 0-metric minus the
+  best 1-metric). The decoder assumes it.
 
 DOWNSTREAM
 ----------

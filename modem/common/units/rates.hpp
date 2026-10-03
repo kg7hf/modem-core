@@ -6,8 +6,8 @@
 // =============================================================================
 // rates.hpp - the carrier-step and per-symbol phase-rate conversions, once.
 // =============================================================================
-// A carrier phase step (rad/sample) and a per-symbol phase rate (rad/symbol) are
-// spelled by hand at ~20 sites, each a two_pi * f / rate with its own local 2pi and
+// A carrier phase step (rad/sample) and a per-symbol phase rate (rad/symbol) are easy
+// to spell by hand at every site, each a two_pi * f / rate with its own local 2pi and
 // its own cast of the rate. Here they are one function each, in Real and in the
 // shipped operation order, so every site is bit-identical and the order that
 // produced the on-air waveform (and the goldens) cannot drift. radians_per_sample
@@ -17,8 +17,8 @@
 // .hertz() (double), so they compile against both the single-kind Frequency and the
 // two-kind BasicFrequency<Kind> without editing frequency.hpp. A carrier (absolute)
 // feeds radians_per_sample; a frequency offset (a difference) feeds radians_per_symbol.
-// These return Real; the typed AngularRate (W3) wraps them, and the rad/symbol inverse
-// returns plain Hz that a caller re-wraps with FrequencyDelta::from_hz - never a cast.
+// These return Real, and the rad/symbol inverse returns plain Hz that a caller
+// re-wraps with FrequencyDelta::from_hz - never a cast.
 // =============================================================================
 
 #include "modem/common/constants.hpp"
@@ -73,7 +73,7 @@ template <HertzSource F> [[nodiscard]] constexpr Real radians_per_symbol(F frequ
 }
 
 // The runtime twin: returns nullopt instead of failing, for the rates that are not exact
-// (e.g. 44100 Hz in transmitter_tests).
+// (e.g. 44100 Hz, which is not a whole number of samples per 2400 Bd symbol).
 [[nodiscard]] constexpr std::optional<std::size_t> try_samples_per_symbol(SampleRate sample_rate, Baud baud) noexcept
 {
     if (baud.value() == 0U || sample_rate.hertz() % baud.value() != 0U)

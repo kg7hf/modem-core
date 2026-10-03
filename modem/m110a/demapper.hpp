@@ -39,7 +39,7 @@ using ::modem::common::Status;
 
 // The a-priori-aware max-log demapper for the turbo equalizer.
 // symbol_estimate is the equalizer output already derotated by the
-// scrambler (exactly as extract_soft_data derotates), modelled as
+// scrambler (exactly as the body decoder derotates), modelled as
 // symbol_gain * s(v) + w with w complex Gaussian of total variance
 // noise_variance, s(v) = psk8_symbol(mapped_tribit(v)) over the 2^source_bits
 // constellation points of the body mapping (Table XI/XII/XIII widths).

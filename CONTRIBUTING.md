@@ -25,8 +25,8 @@ or a standalone tool. CI turns them on.
 |---|---|---|
 | Builds clean, no warnings | `-Wall -Wextra`, warnings-as-errors | `cmake -B build -DMODEM_WERROR=ON && cmake --build build` |
 | Produces the exact symbol stream and waveform | the `tx_golden_symbols` and `tx_golden` CTests | `ctest --test-dir build` |
-| Consistent style, not argued in review | clang-format | `clang-format --dry-run --Werror $(find modem tests -name '*.?pp')` |
-| Follows the C++ Core Guidelines | clang-tidy (`.clang-tidy`) | `cmake -B build -DMODEM_CLANG_TIDY=ON && cmake --build build` |
+| Consistent style, not argued in review | clang-format 19 (versions format differently, so CI pins one) | `clang-format --dry-run --Werror $(find modem tests -name '*.?pp')` |
+| Follows the C++ Core Guidelines | clang-tidy 19 (`.clang-tidy`) | `cmake -B build -DMODEM_CLANG_TIDY=ON && cmake --build build` |
 | Stays simple (avg complexity under six) | lizard | `lizard modem -l cpp --CCN 25` |
 | Is tested | gcov / gcovr | `cmake -B build -DMODEM_COVERAGE=ON && cmake --build build && ctest --test-dir build && gcovr --root . --exclude tests` |
 | Bounded, known stack | `-fstack-usage` | `cmake -B build -DMODEM_STACK_USAGE=ON && cmake --build build && python tools/check_stack_usage.py build 4096` |
