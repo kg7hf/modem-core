@@ -11,7 +11,7 @@
 // its own cast of the rate. Here they are one function each, in Real and in the
 // shipped operation order, so every site is bit-identical and the order that
 // produced the on-air waveform (and the goldens) cannot drift. radians_per_sample
-// carries the 0x3E714639 pin at 1800 Hz / 48 kHz.
+// carries the 0x3E714639 check at 1800 Hz / 48 kHz.
 //
 // The frequency-taking helpers are kind-agnostic: they READ a frequency through
 // .hertz() (double), so they compile against both the single-kind Frequency and the
@@ -83,7 +83,7 @@ template <HertzSource F> [[nodiscard]] constexpr Real radians_per_symbol(F frequ
     return widen<std::size_t>(sample_rate.hertz() / baud.value());
 }
 
-// The carrier-step pin: the exact float the shipped code produced for the body carrier.
+// The carrier-step check: the exact float the shipped code produced for the body carrier.
 static_assert(std::bit_cast<std::uint32_t>(radians_per_sample(Frequency{1800.0, Hz}, SampleRate{48000U})) == 0x3E714639U);
 static_assert(samples_per_symbol(SampleRate{48000U}, Baud{2400U}) == 20U);
 

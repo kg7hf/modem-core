@@ -52,7 +52,7 @@ waveform module, and every buffer it touches belongs to the caller.
    [`interleaver.cpp`](../modem/m110a/interleaver.cpp)
 5. **Map, whiten, and insert probes.** Bits become points on the 8-PSK circle through a
    modified-Gray map; the data randomizer whitens every body symbol; known probe
-   symbols are stitched into every frame.
+   symbols are inserted into every frame.
    → the body waveform and demapper explainers ·
    [`demapper.cpp`](../modem/m110a/demapper.cpp),
    [`scrambler.cpp`](../modem/m110a/scrambler.cpp),
@@ -139,8 +139,8 @@ flowchart TD
 ```
 
 The front end has four jobs. It mixes the 1800 Hz carrier down to complex baseband; it
-filters with a root-raised-cosine pulse, the receive-side twin of the shaping the
-transmitter applied; it works out where each symbol actually is; and it keeps tracking
+filters with a root-raised-cosine pulse, the same family of pulse the transmitter
+shaped with; it works out where each symbol actually is; and it keeps tracking
 the small carrier offset that two radios always leave between them.
 
 Some of that is already here. The pulse is implemented, because the transmitter shapes

@@ -85,7 +85,8 @@ endif()
 #     one changed bit in framing, coding, interleaving, mapping, probes or
 #     scrambling fails it. tx_golden pins the rendered audio's length and first
 #     samples, printed to five decimals so that last-bit differences between
-#     platform math libraries cannot fail it. ---
+#     compilers, optimization levels and math libraries cannot fail it (an
+#     optimizer may fuse the carrier's cos and sin into one sincos call). ---
 enable_testing()
 add_test(NAME tx_golden COMMAND tx_demo Hi)
 set_tests_properties(tx_golden PROPERTIES

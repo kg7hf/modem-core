@@ -7,10 +7,9 @@ modern C++ (C++23), small enough to cross-compile onto a microcontroller. This
 repository is the **transmit side**, published as the companion code to the
 *Signal Path* article series, "Building a MIL-STD-188-110 HF Modem in Modern C++."
 
-It is the easy half, done right: the transmitter is deterministic, fully specified
-by the standard, and it is the ground truth every receiver is measured against. If
-you can build a transmitter another vendor's modem can decode, you have earned the
-right to build the hard half.
+It is the easy half: deterministic, fully specified by the standard, and the
+reference the receiver is measured against. A transmitter that another vendor's
+modem can decode is where building a receiver starts.
 
 ## What's here
 
@@ -56,7 +55,7 @@ renders the whole burst to a 48 kHz WAV you can listen to.
 
 ## Quality
 
-CI builds on GCC and Clang (warnings-as-errors), runs golden tests that pin every
+CI builds on GCC and Clang (warnings-as-errors), runs golden tests that check every
 transmitted symbol and the start of the waveform, and checks formatting (clang-format), the C++ Core Guidelines (clang-tidy), cyclomatic
 complexity (lizard), coverage (gcov), and bounded stack usage (`-fstack-usage`).
 Each gate backs a claim the articles make. See [CONTRIBUTING.md](CONTRIBUTING.md)
