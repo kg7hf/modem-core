@@ -14,3 +14,12 @@ coverage.info
 
 # Demo output
 *.wav
+
+# Personal settings: your own CMake presets and editor state. The shared VS Code
+# setup (settings, tasks, launch, extensions) is committed.
+CMakeUserPresets.json
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json

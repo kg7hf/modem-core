@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "tx_demo (gdb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${command:cmake.launchTargetPath}",
+      "args": ["Hi"],
+      "cwd": "${command:cmake.getLaunchTargetDirectory}",
+      "stopAtEntry": false,
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "tx_demo (lldb, macOS)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${command:cmake.launchTargetPath}",
+      "args": ["Hi"],
+      "cwd": "${command:cmake.getLaunchTargetDirectory}",
+      "stopAtEntry": false,
+      "externalConsole": false,
+      "MIMode": "lldb"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build",
+      "type": "cmake",
+      "command": "build",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Run tx_demo",
+      "type": "process",
+      "command": "${command:cmake.launchTargetPath}",
+      "args": ["Hi"],
+      "options": { "cwd": "${command:cmake.getLaunchTargetDirectory}" },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Golden tests",
+      "type": "cmake",
+      "command": "test",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

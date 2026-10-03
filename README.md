@@ -46,6 +46,10 @@ cmake --build build
 ./build/tx_demo "Hi"      # prints the walkthrough values, writes tx_out.wav
 ```
 
+Prefer an editor? Open the folder in VS Code: the CMake presets, build and run tasks,
+and a debug configuration for `tx_demo` are included (see
+[CONTRIBUTING.md](CONTRIBUTING.md#vs-code)).
+
 `tx_demo` walks the message through the 600 bps long-interleave mode ("600L"),
 prints the intermediate values the transmit-chain article steps through, and
 renders the whole burst to a 48 kHz WAV you can listen to.

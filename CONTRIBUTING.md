@@ -8,13 +8,33 @@ the same switches CI uses.
 ## Build
 
 ```bash
-cmake -B build -G Ninja      # or your generator of choice
-cmake --build build
-ctest --test-dir build       # the golden tests
+cmake --preset gcc-debug           # or gcc-release, clang-debug, clang-release
+cmake --build --preset gcc-debug
+ctest --preset gcc-debug           # the golden tests
 ```
 
-C++23 is required (GCC 14+, Clang 19+; Clang 18 cannot use `std::expected`
-from libstdc++).
+The presets in `CMakePresets.json` build with Ninja into `build/<preset>/`, with
+warnings as errors, using the `g++` or `clang++` on your PATH. C++23 is required
+(GCC 14+, Clang 19+; Clang 18 cannot use `std::expected` from libstdc++). If your
+default compiler is older, add a `CMakeUserPresets.json` (git ignores it) that
+inherits a preset and sets `CMAKE_CXX_COMPILER`, for example to `g++-14`. Without
+presets: `cmake -B build -G Ninja`, `cmake --build build`, `ctest --test-dir build`.
+
+## VS Code
+
+Open the repository folder and install the two recommended extensions (CMake Tools
+and C/C++). Pick a configure preset when CMake Tools asks (a `-debug` one to step
+through the code), then:
+
+- **Build:** F7, or Ctrl+Shift+B.
+- **Run:** the *Run tx_demo* task. It runs `tx_demo Hi` and writes `tx_out.wav` into
+  the build folder.
+- **Debug:** F5 with *tx_demo (gdb)*, or *tx_demo (lldb, macOS)* on a Mac. Set a
+  breakpoint in `tests/tx_demo.cpp` and step down into the transmit chain.
+- **Test:** the *Golden tests* task.
+
+The debugger has to be on your PATH: gdb comes with MinGW-w64 toolchains such as
+WinLibs, and with most Linux distributions.
 
 ## The quality gates
 
