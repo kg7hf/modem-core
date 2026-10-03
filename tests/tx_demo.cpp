@@ -33,11 +33,11 @@
 
 #include <algorithm>
 #include <array>
-#include <cinttypes>
 #include <complex>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <print>
 #include <span>
 #include <string>
 #include <string_view>
@@ -135,62 +135,62 @@ int main(int argc, char** argv)
     const std::string message = args.size() > 1U ? args[1] : "Hi";
     if (message.empty())
     {
-        std::printf("usage: tx_demo [message]   (default: \"Hi\")\n");
+        std::println(stderr, "usage: tx_demo [message]   (default: \"Hi\")");
         return 1;
     }
     const std::span<const std::uint8_t> payload = as_octets(message);
 
-    std::printf("== Transmit chain walkthrough (600 bps, long interleave) ==\n");
-    std::printf("message: \"%s\"\n", message.c_str());
-    std::printf("steps 1-5 trace the first byte by hand; step 6 runs the real transmitter\n\n");
+    std::println("== Transmit chain walkthrough (600 bps, long interleave) ==");
+    std::println("message: \"{}\"", message);
+    std::println("steps 1-5 trace the first byte by hand; step 6 runs the real transmitter\n");
 
     // 1. By hand: user octets enter least-significant bit first. The transmitter does
     //    this for every byte inside generate_body_transmission_audio (step 6).
     const std::uint8_t first = payload.front();
-    std::printf("1. '%c' = 0x%02X, LSB-first bits: ", message.front(), first);
+    std::print("1. '{}' = 0x{:02X}, LSB-first bits: ", message.front(), first);
     constexpr std::size_t bits_per_octet = 8U;
     std::array<std::uint8_t, bits_per_octet> first_bits{};
     unsigned position = 0U;
     for (auto& bit : first_bits)
     {
         bit = bit_at(first, position++);
-        std::printf("%u", bit);
+        std::print("{}", bit);
     }
-    std::printf("\n");
+    std::print("\n");
 
     // 2. By hand: the K=7 rate-1/2 convolutional code (generators 133/171 octal),
     //    starting from the all-zero state.
     ConvolutionalEncoderK7 encoder(0U);
-    std::printf("2. K=7 coded pairs (t1t2): ");
+    std::print("2. K=7 coded pairs (t1t2): ");
     for (const std::uint8_t bit : first_bits)
     {
         const auto pair = encoder.push(bit);
-        std::printf("%u%u ", pair.t1, pair.t2);
+        std::print("{}{} ", pair.t1, pair.t2);
     }
-    std::printf("\n");
+    std::print("\n");
 
     // 3. By hand: 600L is BPSK, one coded bit per symbol -> tribit 0 (0 deg) or 4 (180 deg).
-    std::printf("3. BPSK map: coded 0 -> tribit %u (0 deg), coded 1 -> tribit %u (180 deg)\n", mapped_tribit(0U, 1U), mapped_tribit(1U, 1U));
+    std::println("3. BPSK map: coded 0 -> tribit {} (0 deg), coded 1 -> tribit {} (180 deg)", mapped_tribit(0U, 1U), mapped_tribit(1U, 1U));
 
     // 4. By hand: scramble on the 8-PSK ring, (tribit + randomizer) mod 8. The randomizer
     //    starts at the standard's load value; the example uses its second tribit.
     BodyDataRandomizer randomizer;
     constexpr std::size_t tribits_shown = 6U;
     std::array<std::uint8_t, tribits_shown> randomizer_tribits{};
-    std::printf("4. body randomizer tribits: ");
+    std::print("4. body randomizer tribits: ");
     for (auto& tribit : randomizer_tribits)
     {
         tribit = randomizer.next_tribit();
-        std::printf("%u ", tribit);
+        std::print("{} ", tribit);
     }
     const std::uint8_t example = randomizer_tribits[1];
     const std::uint8_t tx_tribit = tribit_add(4U, example);
-    std::printf("\n   example: coded 1 -> tribit 4, + randomizer %u => transmitted %u\n", example, tx_tribit);
+    std::println("\n   example: coded 1 -> tribit 4, + randomizer {} => transmitted {}", example, tx_tribit);
 
     // 5. By hand: a transmitted tribit is a point on the 8-PSK circle.
     const IQSample point = psk8_symbol(tx_tribit);
     constexpr unsigned degrees_per_tribit = 45U;
-    std::printf("5. psk8_symbol(%u): I=% .3f Q=% .3f (%u x %u = %u deg)\n\n", tx_tribit, point.real(), point.imag(), tx_tribit, degrees_per_tribit, tx_tribit * degrees_per_tribit);
+    std::println("5. psk8_symbol({}): I={: .3f} Q={: .3f} ({} x {} = {} deg)\n", tx_tribit, point.real(), point.imag(), tx_tribit, degrees_per_tribit, tx_tribit * degrees_per_tribit);
 
     // 6. The real transmitter, for every byte. Plan every size first, allocate the
     //    buffers here in the caller (the library never allocates), then render: framing
@@ -202,7 +202,7 @@ int main(int argc, char** argv)
     const auto plan_result = body_transmission_plan(mode, payload.size());
     if (!plan_result)
     {
-        std::printf("plan failed\n");
+        std::println(stderr, "plan failed");
         return 1;
     }
     const BodyTransmissionPlan& plan = plan_result.value();
@@ -224,17 +224,17 @@ int main(int argc, char** argv)
     const auto status = generate_body_transmission_audio(plan, payload, scratch, audio);
     if (!status.is_ok())
     {
-        std::printf("render failed\n");
+        std::println(stderr, "render failed");
         return 1;
     }
 
     const Real seconds = approx_real(audio.size()) / as_real(body_audio_sample_rate_hz); // display only
-    std::printf("6. generate_body_transmission_audio rendered %zu samples at 48 kHz (%.2f s); first: %.5f %.5f %.5f (preamble)\n", audio.size(), seconds, audio[0], audio[1], audio[2]);
+    std::println("6. generate_body_transmission_audio rendered {} samples at 48 kHz ({:.2f} s); first: {:.5f} {:.5f} {:.5f} (preamble)", audio.size(), seconds, audio[0], audio[1], audio[2]);
 
     write_wav("tx_out.wav", audio, body_audio_sample_rate_hz);
-    std::printf("   wrote tx_out.wav\n");
+    std::println("   wrote tx_out.wav");
 
     // 7. Every transmitted tribit, pinned exactly (the tx_golden_symbols test).
-    std::printf("7. %zu transmitted tribits, FNV-1a %016" PRIx64 "\n", transmitted_tribits.size(), fnv1a(transmitted_tribits));
+    std::println("7. {} transmitted tribits, FNV-1a {:016x}", transmitted_tribits.size(), fnv1a(transmitted_tribits));
     return 0;
 }

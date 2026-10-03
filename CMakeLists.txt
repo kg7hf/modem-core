@@ -35,8 +35,33 @@ add_library(modem_tx STATIC
 )
 target_include_directories(modem_tx PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+# The runtime rules from "The rules I build by" travel with the library: no exceptions
+# and no RTTI. They are PUBLIC, so tx_demo and any other consumer build the same way.
+if(MSVC)
+    target_compile_options(modem_tx PUBLIC $<$<COMPILE_LANGUAGE:CXX>:/GR-> $<$<COMPILE_LANGUAGE:CXX>:/EHs-> $<$<COMPILE_LANGUAGE:CXX>:/EHc->)
+    target_compile_definitions(modem_tx PUBLIC $<$<COMPILE_LANGUAGE:CXX>:_HAS_EXCEPTIONS=0>)
+else()
+    target_compile_options(modem_tx PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions> $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>)
+endif()
+
 add_executable(tx_demo tests/tx_demo.cpp)
 target_link_libraries(tx_demo PRIVATE modem_tx)
+
+# The demo prints with C++23 std::print. GCC 14's libstdc++ keeps the console
+# support std::print needs in the separate libstdc++exp library (later releases
+# fold it into libstdc++), so link it only when the toolchain needs it.
+include(CheckCXXSourceCompiles)
+set(MODEM_PRINT_PROBE "#include <print>\nint main() { std::println(\"{}\", 1); }")
+check_cxx_source_compiles("${MODEM_PRINT_PROBE}" MODEM_PRINT_LINKS)
+if(NOT MODEM_PRINT_LINKS)
+    set(CMAKE_REQUIRED_LIBRARIES stdc++exp)
+    check_cxx_source_compiles("${MODEM_PRINT_PROBE}" MODEM_PRINT_LINKS_WITH_STDCXXEXP)
+    unset(CMAKE_REQUIRED_LIBRARIES)
+    if(NOT MODEM_PRINT_LINKS_WITH_STDCXXEXP)
+        message(FATAL_ERROR "C++23 std::print does not link with this toolchain (GCC 14+ or Clang 19+ required)")
+    endif()
+    target_link_libraries(tx_demo PRIVATE stdc++exp)
+endif()
 
 # --- Apply the warning/tooling flags to our own targets (GCC/Clang). ---
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
