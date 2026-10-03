@@ -114,8 +114,8 @@ the module sits in the pipeline, a function-by-function walkthrough, a small wor
 example (illustrative, not a compliance trace), what goes wrong, what to watch while
 debugging, and notes for maintainers.
 
-Then do what the transmit-chain article asks: open the standard beside the code and
-check the numbers yourself.
+Then do what the [transmit-chain article](articles/03-transmit-chain.md) asks: open the
+standard beside the code and check the numbers yourself.
 
 ## Next: the audio front end
 

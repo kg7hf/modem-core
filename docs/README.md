@@ -12,9 +12,9 @@ HF Modem in Modern C++":
 
 - [An Introduction](articles/01-introduction.md): what the waveform is and why it still matters.
 - [The rules I build by](articles/02-embedded-cpp-philosophy.md): the embedded-first engineering philosophy behind the code.
+- [The transmit chain](articles/03-transmit-chain.md): the companion to this repository; from user bytes to an 1800 Hz waveform, one stage at a time.
 
-The transmit-chain article, the direct companion to this repository, joins here when
-it publishes.
+The next article, the audio front end, joins here when it publishes.
 
 ## Code-level walkthroughs
 
