@@ -29,6 +29,7 @@ add_library(modem_tx STATIC
     modem/common/waveform/waveform.cpp
     modem/m110a/transmitter.cpp
     modem/m110a/body_waveform.cpp
+    modem/m110a/body_audio_stream_frontend.cpp
     modem/m110a/scrambler.cpp
     modem/m110a/demapper.cpp
     modem/m110a/interleaver.cpp
