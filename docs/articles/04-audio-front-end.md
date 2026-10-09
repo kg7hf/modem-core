@@ -39,7 +39,18 @@ The front end does four things, in order:
 
 A fifth job, removing what is left of the carrier's phase and frequency, starts here and finishes in the equalizer.
 
-[TODO: figure, the front end as a block diagram; Mermaid for GitHub, a PNG for dev.to.]
+```mermaid
+graph TD
+  A["48 kHz audio, in blocks of 1 to 480 samples"] --> B["Mix down: times the conjugate carrier, from the 80-entry table"]
+  B --> C["Ring buffer: 1024 complex samples"]
+  C --> D["Matched filter: 161-tap root-raised cosine, run only where the loop reads"]
+  D --> E["Read early, on time and late, half a symbol apart"]
+  E --> F["Early-late timing error, divided by the energy"]
+  F --> G["Timing loop: 20 samples on, plus at most 0.2 of a sample"]
+  G -->|next symbol| E
+  E --> H["Symbols out: early and on time, 2400 a second"]
+  H --> I["Acquisition (next article), then the equalizer and the carrier tracker"]
+```
 
 ## Mixing down to baseband
 
@@ -138,7 +149,7 @@ The loop decides where to read next with an early-late timing detector. At each 
 const auto timing_error = std::real((late - early) * std::conj(on_time));
 ```
 
-If the late sample is stronger than the early one, the peak is ahead, and the loop moves later; if the early one is stronger, it moves earlier. Multiplying by the conjugate of the on-time sample makes the result independent of the carrier's phase, so the loop works before the carrier is tracked. The error is divided by the energy of the three samples, so a loud signal and a quiet one move the loop by the same amount, and the step is limited to a fifth of a sample per symbol.
+If the late sample is stronger than the early one, the peak is ahead, and the loop moves later; if the early one is stronger, it moves earlier. Multiplying by the conjugate of the on-time sample makes the result independent of the carrier's phase, so the loop works before the carrier is tracked. The error is divided by the energy of the three samples, so a loud signal and a quiet one move the loop by the same amount, and the step is limited to a fifth of a sample per symbol. So the front end needs no gain control of its own. The stages after it do care about the level, and the receiver scales each burst's symbols to a set level before it hands them on.
 
 Step 5, `timing_error()`, reads the receive pulse at those three points, with the on-time point on the peak and four samples either side of it:
 
@@ -224,6 +235,34 @@ Each on-time sample sits within a degree of one of the eight phases, at the same
 
 These coded bits are still in the interleaver's order, so they are not yet the bits of "H". Undoing the interleaver and the code is the work of later articles.
 
+## The test bench
+
+This article is where the repository starts testing: at the receiver's first stage, so that each stage after it arrives with its own tests.
+
+The framework is Catch2. It is an external test tool, kept as a git submodule in `external/catch2` and fixed to one release by its commit, and it builds only for the tests, never into the modem. Like the modem, it builds without exceptions: a failed `REQUIRE` ends that test's process instead of throwing. CMake registers every test case as its own CTest test, so `ctest` runs them all, and VS Code's Testing panel lists each one to run or debug on its own. Clone the repository with `--recurse-submodules`, or run `git submodule update --init` once.
+
+A test is built from three pieces in `tests/support/`:
+
+- **A signal from the real transmitter** (`test_waveform`). The Part 2 transmitter is the reference every receive stage is measured against, so it makes the test signals: a mode, a payload (given, or random from a seed so every run repeats) and any number of bursts, with what was sent kept beside the audio.
+- **A channel** (`test_channel`): white noise, a CW tone and two-path Watterson fading, all from fixed seeds. Signal-to-noise is set the way the standard measures it, signal power over the noise power in a 3 kHz band. White noise spreads evenly from 0 to 24 kHz, so a 3 kHz band holds one eighth of its power. The fading model is an engineering model, not a qualified simulator, so a result through it is engineering evidence, not a conformance result.
+- **A scorer** (`front_end_harness`). It runs audio through a front end in any block sizes, lines the symbols up with what was sent, finds where the loop locked, and counts the decisions that match after that.
+
+The walkthrough steps are tests too: `front_end_tests` calls the functions `front_end_demo` calls and checks what they return. Around them are tests of whole bursts: "Hi" from start to finish, a train of random messages with gaps between them, white noise at 10 dB signal-to-noise, and a CW tone on the carrier 10 dB below the signal at 20 dB signal-to-noise. Two more run only when asked for. One is the thirty-minute run from "Keeping time for hours" (`ctest -L long`). The other only reports: through Watterson fading (2 ms, 1 Hz, 20 dB signal-to-noise) the front end alone gets most decisions wrong, because removing the echoes is the equalizer's job (`ctest -L report`).
+
+### What the short preamble showed
+
+When I added a test for the short interleaver, it showed that a comment in the front end was wrong. The comment said the loop pulls in from any starting phase during the preamble. The 600S preamble is 1440 symbols, 0.6 seconds, and the test slides the "Hi" burst through every sample of one symbol period, so the loop starts at every phase it can meet. From 19 of the 20 starting phases it locks inside the preamble, by symbol 1000 at the latest, and every decision after that is right. Started exactly half a symbol off the symbol peaks, it locks only by symbol 2200, after the body has begun, on a clean signal and with white noise from 40 down to 10 dB signal-to-noise alike.
+
+That start is the early-late detector's unstable zero. The early and late samples are equally strong there, the error is close to zero, and the loop barely moves until the data pushes it off; the textbook name is a hang-up. Gardner's detector has the same point, and so does every timing detector, because its error repeats every symbol and has to cross zero twice. Started there, Gardner locked by symbol 1900: sooner, and still too late. The limit is how fast the loop pulls in: nine samples off the peak, either detector takes 1000 symbols to lock.
+
+The fix belongs with the receiver's conformance testing, later in the series, so for now the limit is documented, and I corrected the comment. The half-symbol start has its own test, tagged `[!shouldfail]`. Catch2 counts its failure as expected, so the suite stays green; when the limit is fixed, that test's pass is reported as a failure, and the tag comes off. Until then the limit sits in the test list, where anyone who runs the tests sees it.
+
+### Part 2, retrofitted
+
+Part 2's transmitter had `tx_demo` and two golden tests, which check every transmitted symbol against a saved snapshot and the first samples of the waveform. It now has unit tests as well, in `tests/transmit_chain_tests.cpp`, following that article's sections: the plan, the FEC, each rate's block plan, the interleaver, the Gray map, the randomizer, the carrier and the walk. Every number Part 2 quotes came out of them unchanged.
+
+One sentence needed correcting. Part 2 says each input bit "influences seven coded pairs, fourteen coded bits". The bit stays in the encoder for seven pairs, but each generator, 133 and 171 octal, has five taps, so ten of those fourteen coded bits depend on it; in the fifth pair, neither coded bit does.
+
 ## Go read the code, and the standard
 
 1. The mix doubles each product. Why? (A real cosine is the sum of two phasors.)
@@ -236,6 +275,7 @@ These coded bits are still in the interleaver's order, so they are not yet the b
 8. Step 5, `timing_error()`, reads the early-late detector on the receive pulse. Write Gardner's detector next to it and run both on the same pulse. Where do they agree, and how many interpolated samples does each need per symbol? Then put it in the loop in place of the early-late error and run the 600S tests. Does Gardner escape the half-symbol start? Why does every timing detector have a point like that?
 9. Step 4, `pulse_neighbors()`, prints the leftover at the neighboring symbols for a receive rolloff of 0.25 and of 0.35. Why is the 0.25 leftover smaller, and what would you have to check before switching a qualified receiver to it?
 10. MIL-STD-188-110B holds the 1800 Hz carrier to within 1 Hz (paragraph 5.3.2.3.9) and every signaling rate to within 0.01 percent of nominal (paragraph 4.2.1). Put two modems at opposite ends of those limits: how far apart can their carriers be, and their symbol clocks, in parts per million? Compare that with the carrier tracker's limit of 0.1 pi radians per symbol, and with the timing loop's standing offset at 100 ppm. Then find what else in a real link moves the frequency further than the modems do.
+11. Run `front_end_tests` and find the `[!shouldfail]` case. What does Catch2 print for it, and why does `ctest` still pass? What has to happen before the tag can come off?
 
 ## Next
 
