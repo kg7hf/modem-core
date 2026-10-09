@@ -5,20 +5,67 @@
       "label": "Build",
       "type": "cmake",
       "command": "build",
-      "group": { "kind": "build", "isDefault": true },
-      "problemMatcher": ["$gcc"]
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
     },
     {
       "label": "Run tx_demo",
       "type": "process",
-      "command": "${command:cmake.launchTargetPath}",
-      "args": ["Hi"],
-      "options": { "cwd": "${command:cmake.getLaunchTargetDirectory}" },
+      "dependsOn": "Build",
+      "command": "${command:cmake.buildDirectory}/tx_demo",
+      "windows": {
+        "command": "${command:cmake.buildDirectory}/tx_demo.exe"
+      },
+      "args": [
+        "Hi"
+      ],
+      "options": {
+        "cwd": "${command:cmake.buildDirectory}"
+      },
       "group": "test",
       "problemMatcher": []
     },
     {
-      "label": "Golden tests",
+      "label": "Run the transmit-chain walkthrough",
+      "type": "process",
+      "dependsOn": "Build",
+      "command": "${command:cmake.buildDirectory}/transmit_chain_tests",
+      "windows": {
+        "command": "${command:cmake.buildDirectory}/transmit_chain_tests.exe"
+      },
+      "args": [
+        "[walkthrough]",
+        "--order",
+        "decl"
+      ],
+      "options": {
+        "cwd": "${command:cmake.buildDirectory}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run front_end_demo",
+      "type": "process",
+      "dependsOn": "Build",
+      "command": "${command:cmake.buildDirectory}/front_end_demo",
+      "windows": {
+        "command": "${command:cmake.buildDirectory}/front_end_demo.exe"
+      },
+      "args": [],
+      "options": {
+        "cwd": "${command:cmake.buildDirectory}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Tests",
       "type": "cmake",
       "command": "test",
       "group": "test",

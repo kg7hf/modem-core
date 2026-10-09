@@ -5,10 +5,16 @@
       "name": "tx_demo (gdb)",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${command:cmake.launchTargetPath}",
-      "args": ["Hi"],
-      "cwd": "${command:cmake.getLaunchTargetDirectory}",
-      "stopAtEntry": false,
+      "preLaunchTask": "Build",
+      "program": "${command:cmake.buildDirectory}/tx_demo",
+      "windows": {
+        "program": "${command:cmake.buildDirectory}/tx_demo.exe"
+      },
+      "args": [
+        "Hi"
+      ],
+      "cwd": "${command:cmake.buildDirectory}",
+      "stopAtEntry": true,
       "externalConsole": false,
       "MIMode": "gdb",
       "miDebuggerPath": "gdb",
@@ -24,12 +30,135 @@
       "name": "tx_demo (lldb, macOS)",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${command:cmake.launchTargetPath}",
-      "args": ["Hi"],
-      "cwd": "${command:cmake.getLaunchTargetDirectory}",
+      "preLaunchTask": "Build",
+      "program": "${command:cmake.buildDirectory}/tx_demo",
+      "args": [
+        "Hi"
+      ],
+      "cwd": "${command:cmake.buildDirectory}",
+      "stopAtEntry": true,
+      "externalConsole": false,
+      "MIMode": "lldb"
+    },
+    {
+      "name": "front_end_demo (gdb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "Build",
+      "program": "${command:cmake.buildDirectory}/front_end_demo",
+      "windows": {
+        "program": "${command:cmake.buildDirectory}/front_end_demo.exe"
+      },
+      "args": [],
+      "cwd": "${command:cmake.buildDirectory}",
+      "stopAtEntry": true,
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "front_end_demo (lldb, macOS)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "Build",
+      "program": "${command:cmake.buildDirectory}/front_end_demo",
+      "args": [],
+      "cwd": "${command:cmake.buildDirectory}",
+      "stopAtEntry": true,
+      "externalConsole": false,
+      "MIMode": "lldb"
+    },
+    {
+      "name": "transmit_chain_tests (gdb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "Build",
+      "program": "${command:cmake.buildDirectory}/transmit_chain_tests",
+      "windows": {
+        "program": "${command:cmake.buildDirectory}/transmit_chain_tests.exe"
+      },
+      "args": [
+        "${input:transmitSection}",
+        "--order",
+        "decl"
+      ],
+      "cwd": "${command:cmake.buildDirectory}",
+      "stopAtEntry": false,
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "transmit_chain_tests (lldb, macOS)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "Build",
+      "program": "${command:cmake.buildDirectory}/transmit_chain_tests",
+      "args": [
+        "${input:transmitSection}",
+        "--order",
+        "decl"
+      ],
+      "cwd": "${command:cmake.buildDirectory}",
       "stopAtEntry": false,
       "externalConsole": false,
       "MIMode": "lldb"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "transmitSection",
+      "type": "pickString",
+      "description": "Which part of the Part 2 walkthrough to step through (set a breakpoint in its test first)",
+      "options": [
+        {
+          "label": "The whole walkthrough, in article order",
+          "value": "[walkthrough]"
+        },
+        {
+          "label": "Plan the whole burst (and each rate's block plan)",
+          "value": "[plan]"
+        },
+        {
+          "label": "The FEC",
+          "value": "[fec]"
+        },
+        {
+          "label": "Interleaving",
+          "value": "[interleave]"
+        },
+        {
+          "label": "Bits to symbols: the Gray map",
+          "value": "[map]"
+        },
+        {
+          "label": "Scrambling",
+          "value": "[scramble]"
+        },
+        {
+          "label": "Turning symbols into 1800 Hz",
+          "value": "[carrier]"
+        },
+        {
+          "label": "Walk a message through it",
+          "value": "[walk]"
+        }
+      ],
+      "default": "[walkthrough]"
     }
   ]
 }
