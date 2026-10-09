@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Paul R. Decker (KG7HF)
 
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.25)
 project(modem_core_tx LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -14,6 +14,7 @@ option(MODEM_WERROR      "Treat warnings as errors"                       OFF)
 option(MODEM_CLANG_TIDY  "Run clang-tidy during the build (.clang-tidy)"  OFF)
 option(MODEM_COVERAGE    "Instrument for gcov / llvm-cov coverage"        OFF)
 option(MODEM_STACK_USAGE "Emit -fstack-usage .su reports (bounded stack)" OFF)
+option(MODEM_BUILD_TESTS "Build the Catch2 unit tests (needs the external/catch2 submodule)" ON)
 
 if(MODEM_CLANG_TIDY)
     # Prefer clang-tidy 19: version 18 cannot parse std::expected from libstdc++.
@@ -51,6 +52,26 @@ endif()
 add_executable(tx_demo tests/tx_demo.cpp)
 target_link_libraries(tx_demo PRIVATE modem_tx)
 
+# MinGW on Windows: put the compiler's runtime DLLs next to each program. Windows loads a
+# DLL from the program's own folder before searching the PATH, so another toolchain's older
+# libstdc++ on the PATH (Git for Windows carries one) cannot be picked up by mistake.
+if(MINGW)
+    get_filename_component(MODEM_MINGW_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    foreach(dll libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll)
+        if(EXISTS "${MODEM_MINGW_BIN}/${dll}")
+            list(APPEND MODEM_MINGW_RUNTIME "${MODEM_MINGW_BIN}/${dll}")
+        endif()
+    endforeach()
+endif()
+function(modem_copy_runtime target)
+    if(MODEM_MINGW_RUNTIME)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MODEM_MINGW_RUNTIME} $<TARGET_FILE_DIR:${target}>
+            VERBATIM)
+    endif()
+endfunction()
+modem_copy_runtime(tx_demo)
+
 # The demo prints with C++23 std::print. GCC 14's libstdc++ keeps the console
 # support std::print needs in the separate libstdc++exp library (later releases
 # fold it into libstdc++), so link it only when the toolchain needs it.
@@ -68,38 +89,48 @@ if(NOT MODEM_PRINT_LINKS)
 endif()
 
 # --- The test bench (from Part 3): Catch2 tests over the real transmitter. ---
-# Catch2 is fetched at configure time, fixed to one release by its commit. The modem
-# builds without exceptions, and so does Catch2: a failed REQUIRE ends that test's
-# process, and each test case runs as its own CTest test.
-include(FetchContent)
-set(CATCH_CONFIG_DISABLE_EXCEPTIONS ON CACHE BOOL "Build Catch2 without exceptions, like the modem" FORCE)
-FetchContent_Declare(Catch2
-    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-    GIT_TAG 317ac1ed4c0bb6e6b91eafc817e05c488feffcb3 # v3.16.0
-    SYSTEM)
-FetchContent_MakeAvailable(Catch2)
-list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
-include(Catch)
+# Catch2 is an external test tool, a git submodule in external/catch2 fixed to one
+# release (v3.16.0) by its commit. It builds only for the tests, never into the modem.
+# The modem builds without exceptions, and so does Catch2: a failed REQUIRE ends that
+# test's process, and each test case runs as its own CTest test.
+if(MODEM_BUILD_TESTS)
+    if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/catch2/CMakeLists.txt)
+        message(FATAL_ERROR "The unit tests need Catch2, a git submodule. Run
+"
+                            "  git submodule update --init
+"
+                            "or configure with -DMODEM_BUILD_TESTS=OFF to build without the tests.")
+    endif()
+    set(CATCH_CONFIG_DISABLE_EXCEPTIONS ON CACHE BOOL "Build Catch2 without exceptions, like the modem" FORCE)
+    # Catch2 is not our code: clang-tidy, when it is on, checks our targets only.
+    set(MODEM_SAVED_CLANG_TIDY "${CMAKE_CXX_CLANG_TIDY}")
+    set(CMAKE_CXX_CLANG_TIDY "")
+    add_subdirectory(external/catch2 EXCLUDE_FROM_ALL SYSTEM)
+    set(CMAKE_CXX_CLANG_TIDY "${MODEM_SAVED_CLANG_TIDY}")
+    list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/catch2/extras)
+    include(Catch)
 
-add_executable(front_end_tests
-    tests/front_end_tests.cpp
-    tests/support/front_end_harness.cpp
-    tests/support/impairments.cpp
-    tests/support/test_channel.cpp
-    tests/support/test_waveform.cpp)
-target_link_libraries(front_end_tests PRIVATE modem_tx Catch2::Catch2WithMain)
-if(NOT MODEM_PRINT_LINKS)
-    target_link_libraries(front_end_tests PRIVATE stdc++exp)
-endif()
-# A fully static MinGW build keeps another toolchain's runtime DLLs on the PATH (Git for
-# Windows carries an older libstdc++) from being loaded by mistake.
-if(MINGW)
-    target_link_options(front_end_tests PRIVATE -static)
+    add_executable(front_end_tests
+        tests/front_end_tests.cpp
+        tests/support/front_end_harness.cpp
+        tests/support/impairments.cpp
+        tests/support/test_channel.cpp
+        tests/support/test_waveform.cpp)
+    target_link_libraries(front_end_tests PRIVATE modem_tx Catch2::Catch2WithMain)
+    if(NOT MODEM_PRINT_LINKS)
+        target_link_libraries(front_end_tests PRIVATE stdc++exp)
+    endif()
+    # Before catch_discover_tests (below) runs the program to list its tests.
+    modem_copy_runtime(front_end_tests)
 endif()
 
 # --- Apply the warning/tooling flags to our own targets (GCC/Clang). ---
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(target modem_tx tx_demo front_end_tests)
+    set(MODEM_OWN_TARGETS modem_tx tx_demo)
+    if(MODEM_BUILD_TESTS)
+        list(APPEND MODEM_OWN_TARGETS front_end_tests)
+    endif()
+    foreach(target ${MODEM_OWN_TARGETS})
         target_compile_options(${target} PRIVATE -Wall -Wextra)
         if(MODEM_WERROR)
             target_compile_options(${target} PRIVATE -Werror)
@@ -108,7 +139,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             target_compile_options(${target} PRIVATE --coverage -O0 -g)
             target_link_options(${target} PRIVATE --coverage)
         endif()
-        if(MODEM_STACK_USAGE)
+        # The stack bound is a claim about the modem; a test fixture may hold a whole
+        # front end on its stack, so the tests are not part of it.
+        if(MODEM_STACK_USAGE AND NOT target STREQUAL "front_end_tests")
             target_compile_options(${target} PRIVATE -fstack-usage)
         endif()
     endforeach()
@@ -131,6 +164,8 @@ set_tests_properties(tx_golden_symbols PROPERTIES
 
 # Every Catch2 test case is its own CTest test, so each shows up in VS Code's Testing
 # panel. Hidden cases run only when asked for: ctest -L long, or ctest -L report.
-catch_discover_tests(front_end_tests TEST_PREFIX "front_end: ")
-catch_discover_tests(front_end_tests TEST_SPEC "[long]" TEST_PREFIX "long: " PROPERTIES LABELS long)
-catch_discover_tests(front_end_tests TEST_SPEC "[report]" TEST_PREFIX "report: " PROPERTIES LABELS report)
+if(MODEM_BUILD_TESTS)
+    catch_discover_tests(front_end_tests TEST_PREFIX "front_end: ")
+    catch_discover_tests(front_end_tests TEST_SPEC "[long]" TEST_PREFIX "long: " PROPERTIES LABELS long)
+    catch_discover_tests(front_end_tests TEST_SPEC "[report]" TEST_PREFIX "report: " PROPERTIES LABELS report)
+endif()

@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Paul R. Decker (KG7HF)
 #
 # Each job maps onto a claim the articles make: it builds clean and warning-free,
-# it passes the golden tests, it stays simple (lizard), it is formatted and
+# it passes the golden tests and the unit tests, it stays simple (lizard), it is formatted and
 # analyzed (clang-format, clang-tidy), it is covered (gcov), and its stack is
 # bounded (-fstack-usage). The green checkmark is the evidence.
 #
@@ -31,6 +31,8 @@ jobs:
         compiler: [gcc, clang]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true # Catch2, the unit-test framework (external/catch2)
       # Clang 19, not 18: libstdc++ only enables std::expected for a compiler that
       # reports full C++20 concepts, and Clang 18 does not.
       - name: Install toolchain
@@ -44,7 +46,7 @@ jobs:
           fi
       - run: cmake -B build -G Ninja -DMODEM_WERROR=ON
       - run: cmake --build build
-      - name: Golden tests
+      - name: Golden tests and unit tests
         run: ctest --test-dir build --output-on-failure
 
   format:
@@ -62,6 +64,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true # Catch2, the unit-test framework (external/catch2)
       - run: sudo apt-get update && sudo apt-get install -y g++-14 clang-tidy-19 ninja-build cmake
       - run: cmake -B build -G Ninja -DMODEM_CLANG_TIDY=ON -DCMAKE_CXX_COMPILER=g++-14
       - name: clang-tidy (reports Core Guidelines findings)
@@ -83,17 +87,21 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true # Catch2, the unit-test framework (external/catch2)
       - run: sudo apt-get update && sudo apt-get install -y g++-14 gcovr ninja-build cmake
       - run: cmake -B build -G Ninja -DMODEM_COVERAGE=ON -DCMAKE_CXX_COMPILER=g++-14
       - run: cmake --build build && ctest --test-dir build
       - name: Coverage summary
-        run: gcovr --root . --gcov-executable gcov-14 --exclude tests --print-summary
+        run: gcovr --root . --gcov-executable gcov-14 --exclude tests --exclude external --print-summary
 
   stack-usage:
     name: bounded stack (-fstack-usage)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true # Catch2, the unit-test framework (external/catch2)
       - run: sudo apt-get update && sudo apt-get install -y g++-14 ninja-build cmake
       - run: cmake -B build -G Ninja -DMODEM_STACK_USAGE=ON -DCMAKE_CXX_COMPILER=g++-14
       - run: cmake --build build
