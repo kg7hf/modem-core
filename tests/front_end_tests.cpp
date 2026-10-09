@@ -78,58 +78,46 @@ bool same_bits(IQSample a, IQSample b) noexcept
 
 } // namespace
 
-TEST_CASE("The receive filter has unit energy and is symmetric about its peak", "[front_end][pulse]")
+// The article's walkthrough, section by section: run it with
+//   front_end_tests "[walkthrough]" --order decl
+// and every number the article quotes prints in the article's order.
+
+// --- Mixing down to baseband ---
+
+TEST_CASE("The 1800 Hz carrier repeats every 80 samples: three whole cycles", "[front_end][carrier][walkthrough]")
 {
-    std::array<float, BodyAudioStreamFrontend::matched_filter_taps> taps{};
-    REQUIRE(make_root_raised_cosine_taps(samples_per_symbol, BodyAudioStreamFrontend::matched_filter_rolloff, taps).is_ok());
+    using ::modem::m110a::body_carrier_period_samples;
+    using ::modem::m110a::body_carrier_table;
 
-    float energy{};
-    for (const auto tap : taps)
+    // 1800 cycles a second at 48,000 samples a second is 3 cycles every 80 samples, so 80
+    // phasors cover the carrier exactly; entry n turns 3n/80 of a cycle, 13.5 degrees a sample.
+    STATIC_REQUIRE(1800U * body_carrier_period_samples == 3U * 48000U);
+
+    std::println("  n   phase (deg)      cos        sin");
+    for (std::size_t n = 0U; n < body_carrier_period_samples; ++n)
     {
-        energy += tap * tap;
-    }
+        const auto cycles = widen<double>(as_real((3U * n) % body_carrier_period_samples)) / 80.0;
+        const auto exact = std::polar(1.0, 2.0 * std::numbers::pi * cycles);
+        const auto entry = body_carrier_table[n];
 
-    const std::size_t middle = taps.size() / 2U;
-    std::println("receive filter: {} taps, energy {:.6f}, peak {:.4f} at tap {}", taps.size(), energy, taps[middle], middle);
-    CHECK(std::fabs(energy - 1.0F) < 1.0e-5F);
-    CHECK(std::ranges::max_element(taps) == taps.begin() + narrow<std::ptrdiff_t>(middle));
-
-    for (std::size_t index = 0U; index < middle; ++index)
-    {
-        CHECK(std::fabs(taps[index] - taps[taps.size() - 1U - index]) < 1.0e-6F);
-    }
-}
-
-TEST_CASE("Transmit pulse then receive filter leaves the neighbors' instants nearly empty", "[front_end][pulse]")
-{
-    const auto receive_rolloff = GENERATE(0.25F, BodyAudioStreamFrontend::matched_filter_rolloff);
-    std::vector<float> transmit(::modem::m110a::body_audio_shaping_taps);
-    std::vector<float> receive(BodyAudioStreamFrontend::matched_filter_taps);
-    REQUIRE(make_root_raised_cosine_taps(samples_per_symbol, 0.25F, transmit).is_ok());
-    REQUIRE(make_root_raised_cosine_taps(samples_per_symbol, receive_rolloff, receive).is_ok());
-
-    std::vector<float> combined(transmit.size() + receive.size() - 1U);
-    for (std::size_t i = 0U; i < transmit.size(); ++i)
-    {
-        for (std::size_t j = 0U; j < receive.size(); ++j)
+        if (n < 8U || n % 20U == 0U)
         {
-            combined[i + j] += transmit[i] * receive[j];
+            std::println("{:3}   {:8.1f}   {:+9.6f}  {:+9.6f}", n, 360.0 * cycles, entry.real(), entry.imag());
         }
+
+        // Each entry is the exact phasor rounded once to float: within half a float step.
+        CHECK(std::fabs(widen<double>(entry.real()) - exact.real()) < 6.0e-8);
+        CHECK(std::fabs(widen<double>(entry.imag()) - exact.imag()) < 6.0e-8);
     }
 
-    const std::size_t center = combined.size() / 2U;
-    float largest_neighbor{};
-    for (std::size_t offset = samples_per_symbol; offset <= center; offset += samples_per_symbol)
-    {
-        largest_neighbor = std::max({largest_neighbor, std::fabs(combined[center - offset]), std::fabs(combined[center + offset])});
-    }
-
-    std::println("transmit 0.25, receive {:.2f}: peak {:.4f}, largest neighbor {:.5f} ({:.1f} dB below)", receive_rolloff, combined[center], largest_neighbor,
-                 20.0F * std::log10(combined[center] / largest_neighbor));
-    CHECK(largest_neighbor < 0.02F * combined[center]);
+    // The quadrants are exact: 0, 270, 180 and 90 degrees.
+    CHECK(body_carrier_table[0] == IQSample{1.0F, 0.0F});
+    CHECK(body_carrier_table[20] == IQSample{0.0F, -1.0F});
+    CHECK(body_carrier_table[40] == IQSample{-1.0F, 0.0F});
+    CHECK(body_carrier_table[60] == IQSample{0.0F, 1.0F});
 }
 
-TEST_CASE("A tone on the carrier mixes down to a constant and one 10 Hz off turns", "[front_end][mixer]")
+TEST_CASE("A tone on the carrier mixes down to a constant and one 10 Hz off turns", "[front_end][mixer][walkthrough]")
 {
     constexpr std::uint32_t sample_rate = 48000U;
     const auto tone_hz = GENERATE(1800U, 1810U);
@@ -169,40 +157,7 @@ TEST_CASE("A tone on the carrier mixes down to a constant and one 10 Hz off turn
     }
 }
 
-TEST_CASE("The 1800 Hz carrier repeats every 80 samples: three whole cycles", "[front_end][carrier]")
-{
-    using ::modem::m110a::body_carrier_period_samples;
-    using ::modem::m110a::body_carrier_table;
-
-    // 1800 cycles a second at 48,000 samples a second is 3 cycles every 80 samples, so 80
-    // phasors cover the carrier exactly; entry n turns 3n/80 of a cycle, 13.5 degrees a sample.
-    STATIC_REQUIRE(1800U * body_carrier_period_samples == 3U * 48000U);
-
-    std::println("  n   phase (deg)      cos        sin");
-    for (std::size_t n = 0U; n < body_carrier_period_samples; ++n)
-    {
-        const auto cycles = widen<double>(as_real((3U * n) % body_carrier_period_samples)) / 80.0;
-        const auto exact = std::polar(1.0, 2.0 * std::numbers::pi * cycles);
-        const auto entry = body_carrier_table[n];
-
-        if (n < 8U || n % 20U == 0U)
-        {
-            std::println("{:3}   {:8.1f}   {:+9.6f}  {:+9.6f}", n, 360.0 * cycles, entry.real(), entry.imag());
-        }
-
-        // Each entry is the exact phasor rounded once to float: within half a float step.
-        CHECK(std::fabs(widen<double>(entry.real()) - exact.real()) < 6.0e-8);
-        CHECK(std::fabs(widen<double>(entry.imag()) - exact.imag()) < 6.0e-8);
-    }
-
-    // The quadrants are exact: 0, 270, 180 and 90 degrees.
-    CHECK(body_carrier_table[0] == IQSample{1.0F, 0.0F});
-    CHECK(body_carrier_table[20] == IQSample{0.0F, -1.0F});
-    CHECK(body_carrier_table[40] == IQSample{-1.0F, 0.0F});
-    CHECK(body_carrier_table[60] == IQSample{0.0F, 1.0F});
-}
-
-TEST_CASE("Mixing Part 2's tribit 6 down from 1800 Hz", "[front_end][carrier]")
+TEST_CASE("Mixing Part 2's tribit 6 down from 1800 Hz", "[front_end][carrier][walkthrough]")
 {
     using ::modem::m110a::body_carrier_period_samples;
     using ::modem::m110a::body_carrier_table;
@@ -240,7 +195,62 @@ TEST_CASE("Mixing Part 2's tribit 6 down from 1800 Hz", "[front_end][carrier]")
     CHECK(nearest_tribit(on_time) == 6U);
 }
 
-TEST_CASE("The early-late error is zero on the peak and signed off it for any carrier phase", "[front_end][timing]")
+// --- The matched filter ---
+
+TEST_CASE("The receive filter has unit energy and is symmetric about its peak", "[front_end][pulse][walkthrough]")
+{
+    std::array<float, BodyAudioStreamFrontend::matched_filter_taps> taps{};
+    REQUIRE(make_root_raised_cosine_taps(samples_per_symbol, BodyAudioStreamFrontend::matched_filter_rolloff, taps).is_ok());
+
+    float energy{};
+    for (const auto tap : taps)
+    {
+        energy += tap * tap;
+    }
+
+    const std::size_t middle = taps.size() / 2U;
+    std::println("receive filter: {} taps, energy {:.6f}, peak {:.4f} at tap {}", taps.size(), energy, taps[middle], middle);
+    CHECK(std::fabs(energy - 1.0F) < 1.0e-5F);
+    CHECK(std::ranges::max_element(taps) == taps.begin() + narrow<std::ptrdiff_t>(middle));
+
+    for (std::size_t index = 0U; index < middle; ++index)
+    {
+        CHECK(std::fabs(taps[index] - taps[taps.size() - 1U - index]) < 1.0e-6F);
+    }
+}
+
+TEST_CASE("Transmit pulse then receive filter leaves the neighbors' instants nearly empty", "[front_end][pulse][walkthrough]")
+{
+    const auto receive_rolloff = GENERATE(0.25F, BodyAudioStreamFrontend::matched_filter_rolloff);
+    std::vector<float> transmit(::modem::m110a::body_audio_shaping_taps);
+    std::vector<float> receive(BodyAudioStreamFrontend::matched_filter_taps);
+    REQUIRE(make_root_raised_cosine_taps(samples_per_symbol, 0.25F, transmit).is_ok());
+    REQUIRE(make_root_raised_cosine_taps(samples_per_symbol, receive_rolloff, receive).is_ok());
+
+    std::vector<float> combined(transmit.size() + receive.size() - 1U);
+    for (std::size_t i = 0U; i < transmit.size(); ++i)
+    {
+        for (std::size_t j = 0U; j < receive.size(); ++j)
+        {
+            combined[i + j] += transmit[i] * receive[j];
+        }
+    }
+
+    const std::size_t center = combined.size() / 2U;
+    float largest_neighbor{};
+    for (std::size_t offset = samples_per_symbol; offset <= center; offset += samples_per_symbol)
+    {
+        largest_neighbor = std::max({largest_neighbor, std::fabs(combined[center - offset]), std::fabs(combined[center + offset])});
+    }
+
+    std::println("transmit 0.25, receive {:.2f}: peak {:.4f}, largest neighbor {:.5f} ({:.1f} dB below)", receive_rolloff, combined[center], largest_neighbor,
+                 20.0F * std::log10(combined[center] / largest_neighbor));
+    CHECK(largest_neighbor < 0.02F * combined[center]);
+}
+
+// --- Finding the sampling instant ---
+
+TEST_CASE("The early-late error is zero on the peak and signed off it for any carrier phase", "[front_end][timing][walkthrough]")
 {
     std::array<float, BodyAudioStreamFrontend::matched_filter_taps> taps{};
     REQUIRE(make_root_raised_cosine_taps(samples_per_symbol, BodyAudioStreamFrontend::matched_filter_rolloff, taps).is_ok());
@@ -264,7 +274,9 @@ TEST_CASE("The early-late error is zero on the peak and signed off it for any ca
     CHECK(std::fabs(early_turned - early) < 1.0e-6F);
 }
 
-TEST_CASE("A float timing position falls off the grid; whole samples plus a fraction do not", "[front_end][timing]")
+// --- Keeping time for hours ---
+
+TEST_CASE("A float timing position falls off the grid; whole samples plus a fraction do not", "[front_end][timing][walkthrough]")
 {
     float position = 67108864.0F; // 2^26 samples, about 23 minutes at 48 kHz
     position += 20.0F;
@@ -285,7 +297,9 @@ TEST_CASE("A float timing position falls off the grid; whole samples plus a frac
     CHECK(std::fabs(fraction) < 1.0e-6F);
 }
 
-TEST_CASE("Any block size gives the same symbols bit for bit", "[front_end][stream]")
+// --- Any block size, the same symbols ---
+
+TEST_CASE("Any block size gives the same symbols bit for bit", "[front_end][stream][walkthrough]")
 {
     const auto waveform = hi_waveform();
     const auto steady = run(waveform.audio, {.block_sizes = {480U}});
@@ -302,18 +316,53 @@ TEST_CASE("Any block size gives the same symbols bit for bit", "[front_end][stre
     CHECK(identical == steady.symbols().size());
 }
 
-TEST_CASE("Hi: after the loop locks every decision is the transmitted tribit", "[front_end][end_to_end]")
+// --- Carrier tracking, part one ---
+
+TEST_CASE("The carrier tracker learns a fixed phase and then a frequency offset", "[front_end][tracker][walkthrough]")
 {
-    const auto waveform = hi_waveform();
-    const auto runner = run(waveform.audio);
-    const auto score = score_burst(runner, waveform.bursts.front(), 0U);
-    std::println("locked by symbol {}; {} of {} decisions match", score.locked_from, score.correct, score.compared);
-    CHECK(score.locked);
-    CHECK(score.compared > 10000U);
-    CHECK(score.correct == score.compared);
+    constexpr float proportional_gain = 0.02F; // the receiver's carrier-loop gains
+    constexpr float integral_gain = 0.0002F;
+    std::uint32_t state = 1U;
+    const auto next_symbol = [&state]
+    {
+        state = state * 1664525U + 1013904223U; // a small fixed pseudo-random sequence
+        return std::polar(1.0F, pi / 4.0F * as_real(state >> 29U));
+    };
+
+    CarrierTracker tracker;
+    REQUIRE(tracker.configure(proportional_gain, integral_gain).is_ok());
+
+    float residual{};
+    tracker.reset();
+    for (int k = 0; k < 2000; ++k)
+    {
+        const auto decision = next_symbol();
+        const auto corrected = tracker.update(decision * std::polar(1.0F, 0.5F), decision);
+        residual = std::fabs(std::arg(corrected * std::conj(decision)));
+    }
+    std::println("fixed 0.5 rad offset: learned {:.4f} rad, last symbol {:.5f} rad from its decision", tracker.phase_radians(), residual);
+    CHECK(std::fabs(tracker.phase_radians() - 0.5F) < 0.01F);
+    CHECK(residual < 0.01F);
+
+    const auto per_symbol = 2.0F * pi * 5.0F / 2400.0F; // 5 Hz at 2400 symbols per second
+    float angle{};
+    tracker.reset();
+    for (int k = 0; k < 5000; ++k)
+    {
+        const auto decision = next_symbol();
+        const auto corrected = tracker.update(decision * std::polar(1.0F, angle), decision);
+        residual = std::fabs(std::arg(corrected * std::conj(decision)));
+        angle = std::remainder(angle + per_symbol, 2.0F * pi);
+    }
+    const auto learned_hz = tracker.frequency_radians_per_symbol() * 2400.0F / (2.0F * pi);
+    std::println("5 Hz offset: learned {:.3f} Hz, last symbol {:.5f} rad from its decision", learned_hz, residual);
+    CHECK(std::fabs(learned_hz - 5.0F) < 0.01F);
+    CHECK(residual < 0.01F);
 }
 
-TEST_CASE("Walk: Part 2's randomizer values come back out of the front end", "[front_end][walk]")
+// --- Walk the symbols back out ---
+
+TEST_CASE("Walk: Part 2's randomizer values come back out of the front end", "[front_end][walk][walkthrough]")
 {
     const auto waveform = hi_waveform();
     const auto& burst = waveform.bursts.front();
@@ -357,46 +406,74 @@ TEST_CASE("Walk: Part 2's randomizer values come back out of the front end", "[f
     CHECK(shown_a_one);
 }
 
-TEST_CASE("The carrier tracker learns a fixed phase and then a frequency offset", "[front_end][tracker]")
+// --- The test bench: whole bursts, many bursts, and a channel ---
+
+TEST_CASE("Hi: after the loop locks every decision is the transmitted tribit", "[front_end][end_to_end]")
 {
-    constexpr float proportional_gain = 0.02F; // the receiver's carrier-loop gains
-    constexpr float integral_gain = 0.0002F;
-    std::uint32_t state = 1U;
-    const auto next_symbol = [&state]
-    {
-        state = state * 1664525U + 1013904223U; // a small fixed pseudo-random sequence
-        return std::polar(1.0F, pi / 4.0F * as_real(state >> 29U));
-    };
+    const auto waveform = hi_waveform();
+    const auto runner = run(waveform.audio);
+    const auto score = score_burst(runner, waveform.bursts.front(), 0U);
+    std::println("locked by symbol {}; {} of {} decisions match", score.locked_from, score.correct, score.compared);
+    CHECK(score.locked);
+    CHECK(score.compared > 10000U);
+    CHECK(score.correct == score.compared);
+}
 
-    CarrierTracker tracker;
-    REQUIRE(tracker.configure(proportional_gain, integral_gain).is_ok());
+namespace
+{
 
-    float residual{};
-    tracker.reset();
-    for (int k = 0; k < 2000; ++k)
+struct ShortLock
+{
+    BurstScore score{};
+    std::size_t preamble_symbols{};
+};
+
+// The 600S "Hi" burst behind `lead` samples of silence, through the front end. The lead moves
+// where the loop starts against the symbols, which is not the receiver's choice.
+ShortLock lock_600s(std::size_t lead)
+{
+    WaveformSpec spec;
+    spec.mode = {::modem::common::DataRate::bps600, ::modem::common::BodyInterleave::short_block};
+    spec.payload = {'H', 'i'};
+    const auto made = make_test_waveform(spec);
+    REQUIRE(made.error().is_ok());
+    const auto& burst = made.value().bursts.front();
+
+    std::vector<float> audio(lead, 0.0F);
+    audio.insert(audio.end(), made.value().audio.begin(), made.value().audio.end());
+    const auto runner = run(audio);
+    const auto score = score_burst(runner, burst, lead);
+    std::println("burst {:2} samples later: locked by symbol {:4} of the {} preamble symbols; {} of {} decisions match", lead, score.locked_from, burst.preamble_symbols, score.correct,
+                 score.compared);
+    return {score, burst.preamble_symbols};
+}
+
+} // namespace
+
+TEST_CASE("600S: the loop locks inside the short preamble from every start but half a symbol off", "[front_end][end_to_end]")
+{
+    // With no lead the loop starts exactly half a symbol off the peaks; the next test has that case.
+    for (std::size_t lead = 1U; lead < samples_per_symbol; ++lead)
     {
-        const auto decision = next_symbol();
-        const auto corrected = tracker.update(decision * std::polar(1.0F, 0.5F), decision);
-        residual = std::fabs(std::arg(corrected * std::conj(decision)));
+        const auto result = lock_600s(lead);
+        CHECK(result.score.locked);
+        CHECK(result.score.locked_from < result.preamble_symbols);
+        CHECK(result.score.correct == result.score.compared);
     }
-    std::println("fixed 0.5 rad offset: learned {:.4f} rad, last symbol {:.5f} rad from its decision", tracker.phase_radians(), residual);
-    CHECK(std::fabs(tracker.phase_radians() - 0.5F) < 0.01F);
-    CHECK(residual < 0.01F);
+}
 
-    const auto per_symbol = 2.0F * pi * 5.0F / 2400.0F; // 5 Hz at 2400 symbols per second
-    float angle{};
-    tracker.reset();
-    for (int k = 0; k < 5000; ++k)
-    {
-        const auto decision = next_symbol();
-        const auto corrected = tracker.update(decision * std::polar(1.0F, angle), decision);
-        residual = std::fabs(std::arg(corrected * std::conj(decision)));
-        angle = std::remainder(angle + per_symbol, 2.0F * pi);
-    }
-    const auto learned_hz = tracker.frequency_radians_per_symbol() * 2400.0F / (2.0F * pi);
-    std::println("5 Hz offset: learned {:.3f} Hz, last symbol {:.5f} rad from its decision", learned_hz, residual);
-    CHECK(std::fabs(learned_hz - 5.0F) < 0.01F);
-    CHECK(residual < 0.01F);
+TEST_CASE("600S: a loop started half a symbol off still locks inside the short preamble", "[front_end][end_to_end][!shouldfail]")
+{
+    // A known limit. With no lead, the first on-time point (sample 170) sits exactly half a
+    // symbol from the filtered peaks (20k + 80): the early-late detector's unstable zero, where
+    // the early and late samples are equally strong, the error is near zero and the loop barely
+    // moves. It locks about 2200 symbols in, after the 1440-symbol preamble, with or without
+    // noise. [!shouldfail] keeps the suite green while the limit stands; once it is fixed, this
+    // case reports its pass as a failure and the tag comes off.
+    const auto result = lock_600s(0U);
+    CHECK(result.score.locked);
+    CHECK(result.score.locked_from < result.preamble_symbols);
+    CHECK(result.score.correct == result.score.compared);
 }
 
 TEST_CASE("A train of ten random messages with gaps: every decision after lock matches", "[front_end][bench]")
