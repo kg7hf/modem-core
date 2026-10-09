@@ -60,7 +60,7 @@ private:
 // replacing the whole-buffer survivor table for continuous receive. It keeps
 // every convention of viterbi_decode_rate_half - positive soft metrics favor
 // bit 0, T1 before T2, additive minimized cost, states with the newest input
-// bit in bit 0, hard-pinned initial state, add/compare order and strict-less
+// bit in bit 0, fixed initial state, add/compare order and strict-less
 // tie breaks - so on a merged trellis both decoders emit identical bits. One
 // survivor word stores the 64 predecessor decisions of one step; the caller
 // provides the window (one std::uint64_t per traceback step) so the depth is

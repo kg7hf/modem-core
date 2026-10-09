@@ -16,7 +16,7 @@
 //
 //   Step 6 is the real transmitter: generate_body_transmission_audio() runs the
 //   whole chain for every byte. Step 7 hashes every symbol it produced; the
-//   tx_golden_symbols test pins that hash.
+//   tx_golden_symbols test checks that hash.
 //
 //   Build:  cmake -B build && cmake --build build
 //   Run:    ./build/tx_demo "Hi"      (writes tx_out.wav)
@@ -113,7 +113,7 @@ void write_wav(const std::string& path, std::span<const float> samples, std::uin
 }
 
 // FNV-1a over the transmitted tribits. They are integers, so the hash is the
-// same on every platform, and it pins every bit decision in the chain: framing,
+// same on every platform, and it covers every bit decision in the chain: framing,
 // coding, interleaving, mapping, probes, preamble and scrambling.
 std::uint64_t fnv1a(std::span<const std::uint8_t> values)
 {
@@ -234,7 +234,7 @@ int main(int argc, char** argv)
     write_wav("tx_out.wav", audio, body_audio_sample_rate_hz);
     std::println("   wrote tx_out.wav");
 
-    // 7. Every transmitted tribit, pinned exactly (the tx_golden_symbols test).
+    // 7. Every transmitted tribit, checked exactly (the tx_golden_symbols test).
     std::println("7. {} transmitted tribits, FNV-1a {:016x}", transmitted_tribits.size(), fnv1a(transmitted_tribits));
     return 0;
 }

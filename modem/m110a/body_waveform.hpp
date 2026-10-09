@@ -55,9 +55,110 @@ inline constexpr ::modem::common::Baud body_symbol_rate{body_symbol_rate_baud};
 inline constexpr ::modem::common::SampleRate body_audio_sample_rate{body_audio_sample_rate_hz};
 inline constexpr ::modem::common::Frequency body_carrier{body_carrier_hz, ::modem::common::Hz};
 // The body carrier's phase advance per 48 kHz sample: two_pi * 1800 / 48000 in Real,
-// the shipped operation order (0x3E714639, pinned in rates.hpp).
+// the shipped operation order (0x3E714639, locked in rates.hpp).
 inline constexpr float body_carrier_radians_per_sample = ::modem::common::radians_per_sample(body_carrier, body_audio_sample_rate);
 constexpr std::size_t body_audio_samples_per_symbol = ::modem::common::samples_per_symbol(body_audio_sample_rate, body_symbol_rate);
+
+// One carrier period: 1800 Hz at 48 kHz repeats exactly every 80 samples (3 cycles), so the
+// transmit modulator and the receive mixer index this table by sample number mod 80 instead of
+// calling sin/cos or running an oscillator recurrence. Entry n is exp(j * 2 * pi * 3n / 80), the
+// carrier phasor at sample n (3/80 of a cycle per sample); each part is computed in double
+// precision from the exactly reduced angle and rounded once to float, written as a hex float
+// literal so every compiler and library reads back the same bits. (The parts that are exactly zero
+// in real arithmetic at the quadrant entries 20, 40 and 60 are written as exact zeros.)
+constexpr std::size_t body_carrier_period_samples = 80U;
+static_assert(body_carrier_hz * body_carrier_period_samples == 3U * body_audio_sample_rate_hz, "the 1800 Hz carrier repeats every 80 samples at 48 kHz");
+inline constexpr std::array<::modem::common::IQSample, body_carrier_period_samples> body_carrier_table{{
+    {0x1.0p+0F, 0x0.0p+0F},
+    {0x1.f1da78p-1F, 0x1.de189ap-3F},
+    {0x1.c83202p-1F, 0x1.d0e2e2p-2F},
+    {0x1.8553eep-1F, 0x1.4c8474p-1F},
+    {0x1.2cf23p-1F, 0x1.9e377ap-1F},
+    {0x1.87de2ap-2F, 0x1.d906bcp-1F},
+    {0x1.4060b6p-3F, 0x1.f9b24ap-1F},
+    {-0x1.415e54p-4F, 0x1.fe6bf2p-1F},
+    {-0x1.3c6ef4p-2F, 0x1.e6f0e2p-1F},
+    {-0x1.0b84eep-1F, 0x1.b48d4p-1F},
+    {-0x1.6a09e6p-1F, 0x1.6a09e6p-1F},
+    {-0x1.b48d4p-1F, 0x1.0b84eep-1F},
+    {-0x1.e6f0e2p-1F, 0x1.3c6ef4p-2F},
+    {-0x1.fe6bf2p-1F, 0x1.415e54p-4F},
+    {-0x1.f9b24ap-1F, -0x1.4060b6p-3F},
+    {-0x1.d906bcp-1F, -0x1.87de2ap-2F},
+    {-0x1.9e377ap-1F, -0x1.2cf23p-1F},
+    {-0x1.4c8474p-1F, -0x1.8553eep-1F},
+    {-0x1.d0e2e2p-2F, -0x1.c83202p-1F},
+    {-0x1.de189ap-3F, -0x1.f1da78p-1F},
+    {0x0p+0F, -0x1.0p+0F},
+    {0x1.de189ap-3F, -0x1.f1da78p-1F},
+    {0x1.d0e2e2p-2F, -0x1.c83202p-1F},
+    {0x1.4c8474p-1F, -0x1.8553eep-1F},
+    {0x1.9e377ap-1F, -0x1.2cf23p-1F},
+    {0x1.d906bcp-1F, -0x1.87de2ap-2F},
+    {0x1.f9b24ap-1F, -0x1.4060b6p-3F},
+    {0x1.fe6bf2p-1F, 0x1.415e54p-4F},
+    {0x1.e6f0e2p-1F, 0x1.3c6ef4p-2F},
+    {0x1.b48d4p-1F, 0x1.0b84eep-1F},
+    {0x1.6a09e6p-1F, 0x1.6a09e6p-1F},
+    {0x1.0b84eep-1F, 0x1.b48d4p-1F},
+    {0x1.3c6ef4p-2F, 0x1.e6f0e2p-1F},
+    {0x1.415e54p-4F, 0x1.fe6bf2p-1F},
+    {-0x1.4060b6p-3F, 0x1.f9b24ap-1F},
+    {-0x1.87de2ap-2F, 0x1.d906bcp-1F},
+    {-0x1.2cf23p-1F, 0x1.9e377ap-1F},
+    {-0x1.8553eep-1F, 0x1.4c8474p-1F},
+    {-0x1.c83202p-1F, 0x1.d0e2e2p-2F},
+    {-0x1.f1da78p-1F, 0x1.de189ap-3F},
+    {-0x1.0p+0F, 0x0p+0F},
+    {-0x1.f1da78p-1F, -0x1.de189ap-3F},
+    {-0x1.c83202p-1F, -0x1.d0e2e2p-2F},
+    {-0x1.8553eep-1F, -0x1.4c8474p-1F},
+    {-0x1.2cf23p-1F, -0x1.9e377ap-1F},
+    {-0x1.87de2ap-2F, -0x1.d906bcp-1F},
+    {-0x1.4060b6p-3F, -0x1.f9b24ap-1F},
+    {0x1.415e54p-4F, -0x1.fe6bf2p-1F},
+    {0x1.3c6ef4p-2F, -0x1.e6f0e2p-1F},
+    {0x1.0b84eep-1F, -0x1.b48d4p-1F},
+    {0x1.6a09e6p-1F, -0x1.6a09e6p-1F},
+    {0x1.b48d4p-1F, -0x1.0b84eep-1F},
+    {0x1.e6f0e2p-1F, -0x1.3c6ef4p-2F},
+    {0x1.fe6bf2p-1F, -0x1.415e54p-4F},
+    {0x1.f9b24ap-1F, 0x1.4060b6p-3F},
+    {0x1.d906bcp-1F, 0x1.87de2ap-2F},
+    {0x1.9e377ap-1F, 0x1.2cf23p-1F},
+    {0x1.4c8474p-1F, 0x1.8553eep-1F},
+    {0x1.d0e2e2p-2F, 0x1.c83202p-1F},
+    {0x1.de189ap-3F, 0x1.f1da78p-1F},
+    {0x0p+0F, 0x1.0p+0F},
+    {-0x1.de189ap-3F, 0x1.f1da78p-1F},
+    {-0x1.d0e2e2p-2F, 0x1.c83202p-1F},
+    {-0x1.4c8474p-1F, 0x1.8553eep-1F},
+    {-0x1.9e377ap-1F, 0x1.2cf23p-1F},
+    {-0x1.d906bcp-1F, 0x1.87de2ap-2F},
+    {-0x1.f9b24ap-1F, 0x1.4060b6p-3F},
+    {-0x1.fe6bf2p-1F, -0x1.415e54p-4F},
+    {-0x1.e6f0e2p-1F, -0x1.3c6ef4p-2F},
+    {-0x1.b48d4p-1F, -0x1.0b84eep-1F},
+    {-0x1.6a09e6p-1F, -0x1.6a09e6p-1F},
+    {-0x1.0b84eep-1F, -0x1.b48d4p-1F},
+    {-0x1.3c6ef4p-2F, -0x1.e6f0e2p-1F},
+    {-0x1.415e54p-4F, -0x1.fe6bf2p-1F},
+    {0x1.4060b6p-3F, -0x1.f9b24ap-1F},
+    {0x1.87de2ap-2F, -0x1.d906bcp-1F},
+    {0x1.2cf23p-1F, -0x1.9e377ap-1F},
+    {0x1.8553eep-1F, -0x1.4c8474p-1F},
+    {0x1.c83202p-1F, -0x1.d0e2e2p-2F},
+    {0x1.f1da78p-1F, -0x1.de189ap-3F},
+}};
+static_assert(body_carrier_table[0] == ::modem::common::IQSample{1.0F, 0.0F});
+static_assert(body_carrier_table[1] == ::modem::common::IQSample{0x1.f1da78p-1F, 0x1.de189ap-3F});
+static_assert(body_carrier_table[27] == ::modem::common::IQSample{0x1.fe6bf2p-1F, 0x1.415e54p-4F});
+static_assert(body_carrier_table[79] == ::modem::common::IQSample{0x1.f1da78p-1F, -0x1.de189ap-3F});
+static_assert(body_carrier_table[20].imag() == -1.0F && body_carrier_table[40].real() == -1.0F && body_carrier_table[60].imag() == 1.0F);
+static_assert(body_carrier_table[20].real() == 0.0F && body_carrier_table[40].imag() == 0.0F && body_carrier_table[60].real() == 0.0F, "the quadrant entries are exact");
+// The carrier phase in radians, wrapped to [0, 2 pi), for a table index and back (the modulator's
+// start phase and the phase it hands to the next call).
+inline constexpr float body_carrier_table_radians = ::modem::common::two_pi / 80.0F;
 constexpr std::size_t body_audio_shaping_span_symbols = 16U;
 constexpr std::size_t body_audio_shaping_taps = 2U * body_audio_shaping_span_symbols * body_audio_samples_per_symbol + 1U;
 
@@ -359,7 +460,7 @@ inline constexpr std::array<BodyMode, 13> body_modes_all{{
 
 inline constexpr BodyScratchBounds body_scratch_max = body_scratch_bounds();
 
-// Pin the folded maxima so the numbers are legible here and any drift fails the
+// Assert the folded maxima so the numbers are legible here and any drift fails the
 // build (long 2400 dominates every field except the uncoded 4800 information run).
 static_assert(body_scratch_max.transmitted_symbols == 11520U);
 static_assert(body_scratch_max.coded_bits == 23040U);
@@ -384,7 +485,7 @@ static_assert(body_scratch_max.survivors == 737280U);
 // continuous stream across blocks with flush at the transmission end, so a
 // receiver can concatenate these per-block metrics and run a single
 // continuous Viterbi over the whole transmission: per-block decoding leaves
-// each boundary's trailing bits unterminated and pins the next block to a
+// each boundary's trailing bits unterminated and ties the next block to a
 // single possibly-wrong state, which measurably concentrates rare-tail
 // errors in the ~30 bits straddling every block boundary. Coded rates only.
 [[nodiscard]] Status body_block_soft_metrics(IQSampleSpan received_symbols, const BodyBlockPlan& plan, BodyDecodeScratch scratch, std::span<float> rate_half_soft) noexcept;
@@ -433,14 +534,15 @@ public:
     [[nodiscard]] Status initialize(float carrier_phase_radians = 0.0F) noexcept;
     void reset() noexcept;
 
-    [[nodiscard]] float carrier_phase_radians() const noexcept { return mCarrierPhaseRadians; }
+    // The carrier position as a phase in [0, 2 pi): the table index is the sample number mod 80, three table steps per sample.
+    [[nodiscard]] float carrier_phase_radians() const noexcept { return ::modem::common::as_real((3U * mCarrierIndex) % body_carrier_period_samples) * body_carrier_table_radians; }
 
     [[nodiscard]] Status render_window(BitSpan symbols, std::size_t first_output_symbol, std::size_t output_symbols, MutableSampleSpan output) noexcept;
 
 private:
     std::array<float, body_audio_shaping_taps> mTaps{};
     float mAmplitudeScale{};
-    float mCarrierPhaseRadians{};
+    std::size_t mCarrierIndex{}; // sample number mod body_carrier_period_samples
     bool mInitialized{};
 };
 

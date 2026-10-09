@@ -15,9 +15,10 @@ matched_filter_and_recover_timing - matched filter plus symbol-timing recovery
 CarrierTracker                - second-order phase/frequency loop closing on the
                                 residual carrier after timing is locked.
 
-In this repository only make_root_raised_cosine_taps is implemented; the
-transmitter shapes every symbol with it. The matched filter, timing recovery and
-CarrierTracker are declared in the header and arrive with the receiver series.
+In this repository make_root_raised_cosine_taps (the transmitter shapes every
+symbol with it) and CarrierTracker are implemented. The whole-buffer
+matched_filter_and_recover_timing is declared in the header and arrives later; the
+streaming front end used for live audio is m110a/body_audio_stream_frontend.
 
 The 110A body preamble acquisition (every body_* symbol) is waveform-specific and
 belongs to the receiver. This file mentions no Body* type at all.
@@ -36,6 +37,24 @@ namespace modem::common
 {
 
 constexpr float pi = 3.14159265358979323846F;
+constexpr float two_pi = 2.0F * pi;
+
+// Wraps a phase to (-pi, pi]. The loop form handles any finite input.
+static float wrap_phase(float phase) noexcept
+{
+    while (phase > pi)
+    {
+        phase -= two_pi;
+    }
+
+    while (phase < -pi)
+    {
+        phase += two_pi;
+    }
+
+    return phase;
+}
+
 Status make_root_raised_cosine_taps(std::size_t samples_per_symbol, float rolloff, std::span<float> taps) noexcept
 {
     if (samples_per_symbol < 2U || rolloff <= 0.0F || rolloff > 1.0F || taps.size() < 3U || (taps.size() & 1U) == 0U)
@@ -84,6 +103,61 @@ Status make_root_raised_cosine_taps(std::size_t samples_per_symbol, float rollof
     }
 
     return Status::success();
+}
+
+Status CarrierTracker::configure(float proportional_gain, float integral_gain, float maximum_frequency_radians_per_symbol) noexcept
+{
+    if (!std::isfinite(proportional_gain) || !std::isfinite(integral_gain) || !std::isfinite(maximum_frequency_radians_per_symbol) || proportional_gain < 0.0F || integral_gain < 0.0F ||
+        maximum_frequency_radians_per_symbol <= 0.0F || maximum_frequency_radians_per_symbol > pi)
+    {
+        return {StatusCode::invalid_argument, "carrier tracker configuration is invalid"};
+    }
+
+    mProportionalGain = proportional_gain;
+    mIntegralGain = integral_gain;
+    mMaximumFrequencyRadiansPerSymbol = maximum_frequency_radians_per_symbol;
+    mFrequencyRadiansPerSymbol = std::clamp(mFrequencyRadiansPerSymbol, -mMaximumFrequencyRadiansPerSymbol, mMaximumFrequencyRadiansPerSymbol);
+    return Status::success();
+}
+
+void CarrierTracker::reset(float phase_radians, float frequency_radians_per_symbol) noexcept
+{
+    mPhaseRadians = std::isfinite(phase_radians) ? wrap_phase(phase_radians) : 0.0F;
+    mFrequencyRadiansPerSymbol = std::isfinite(frequency_radians_per_symbol) ? std::clamp(frequency_radians_per_symbol, -mMaximumFrequencyRadiansPerSymbol, mMaximumFrequencyRadiansPerSymbol) : 0.0F;
+}
+
+void CarrierTracker::restore(float phase_radians, float frequency_radians_per_symbol) noexcept
+{
+    mPhaseRadians = phase_radians;
+    mFrequencyRadiansPerSymbol = frequency_radians_per_symbol;
+}
+
+// -----------------------------------------------------------------------------
+// CarrierTracker::update  (decision-directed 2nd-order carrier loop)
+// -----------------------------------------------------------------------------
+// 50K view: Remove residual carrier phase/frequency during demodulation, learning
+//   from each symbol decision.
+// Detailed view: Derotate the input by the current phase; form the phase error
+//   arg(corrected*conj(decision)); integrate it into the frequency estimate
+//   (clamped to +/- max rad/symbol); advance the phase by frequency +
+//   proportional*error. advance() free-wheels the phase for known/skipped
+//   symbols; reset() wraps/clamps a fresh state; restore() re-installs a captured
+//   state bit-for-bit (no re-wrap) for exact streaming replay.
+// 5th-grade view: Keep gently turning a dial so each symbol lands upright; if the
+//   dial keeps needing the same turn, learn that drift and turn ahead of it.
+// -----------------------------------------------------------------------------
+IQSample CarrierTracker::update(IQSample input, IQSample decision) noexcept
+{
+    const auto corrected = input * std::polar(1.0F, -mPhaseRadians);
+    const auto error = std::arg(corrected * std::conj(decision));
+    mFrequencyRadiansPerSymbol = std::clamp(mFrequencyRadiansPerSymbol + mIntegralGain * error, -mMaximumFrequencyRadiansPerSymbol, mMaximumFrequencyRadiansPerSymbol);
+    mPhaseRadians = wrap_phase(mPhaseRadians + mFrequencyRadiansPerSymbol + mProportionalGain * error);
+    return corrected;
+}
+
+void CarrierTracker::advance() noexcept
+{
+    mPhaseRadians = wrap_phase(mPhaseRadians + mFrequencyRadiansPerSymbol);
 }
 
 } // namespace modem::common

@@ -100,7 +100,7 @@ private:
     return ::modem::common::low_bits<3>(tribit + randomizer);
 }
 
-// The width-2 mapping is derived, not tabulated: pin all four entries to the former table {0, 2, 6, 4}.
+// The width-2 mapping is derived, not tabulated: check all four entries against the former table {0, 2, 6, 4}.
 static_assert(mapped_tribit(0U, 2U) == 0U && mapped_tribit(1U, 2U) == 2U && mapped_tribit(2U, 2U) == 6U && mapped_tribit(3U, 2U) == 4U);
 static_assert(tribit_add(7U, 5U) == 4U);
 

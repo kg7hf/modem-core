@@ -210,7 +210,8 @@ Every short block totals **1440 transmitted symbols**; a long block is ×8 (11,5
 - **`body_tribits_to_iq` / `body_tribits_to_audio` / `BodyAudioStreamModulator`:** Render
   symbols to complex IQ, or to real 48 kHz audio: RRC pulse-shape (rolloff 0.25, 20
   samples/symbol), scale to 0.98 of the worst polyphase peak (headroom), and upconvert to
-  the **1800 Hz** carrier, retaining phase across windows.
+  the **1800 Hz** carrier, read from the 80-entry `body_carrier_table` (the carrier
+  repeats every 80 samples), keeping its place across windows.
 
 ---
 
@@ -270,7 +271,7 @@ dewhiten receive ......... z' = z · conj(psk8_symbol(randomizer_tribit))
 | Symptom | Cause | Handling |
 |---|---|---|
 | Receiver loses the channel mid-block | Fading between training updates. | The **probe symbols** every frame (20/20 or 32/16) are known references a receiver re-trains on continuously. |
-| Errors pile up at block boundaries | Per-block FEC termination pins the next block's start state. | The transmit FEC is one continuous stream (`BodyEncodeState`), so a receiver can run **one continuous Viterbi** across blocks; the declared `body_block_soft_metrics` exists for exactly that. |
+| Errors pile up at block boundaries | Per-block FEC termination fixes the next block's start state. | The transmit FEC is one continuous stream (`BodyEncodeState`), so a receiver can run **one continuous Viterbi** across blocks; the declared `body_block_soft_metrics` exists for exactly that. |
 | Payload byte order wrong | LSB vs. MSB confusion. | Payload octets go on the air LSB-first (DTE order; `generate_body_transmission_audio` unpacks them that way); the EOM word is MSB-first. Both are fixed by contract. |
 | Spectrum uneven / carrier leakage | Long runs of identical symbols. | The **data randomizer** whitens every body symbol; audio is scaled to 0.98 of the worst polyphase peak for headroom. |
 | Mode mis-identified mid-body | The preamble decode was marginal. | The last two frames' **probes carry D1/D2**, letting a receiver re-confirm the mode during the body. |
