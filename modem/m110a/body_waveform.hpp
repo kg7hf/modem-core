@@ -460,7 +460,7 @@ inline constexpr std::array<BodyMode, 13> body_modes_all{{
 
 inline constexpr BodyScratchBounds body_scratch_max = body_scratch_bounds();
 
-// Pin the folded maxima so the numbers are legible here and any drift fails the
+// Assert the folded maxima so the numbers are legible here and any drift fails the
 // build (long 2400 dominates every field except the uncoded 4800 information run).
 static_assert(body_scratch_max.transmitted_symbols == 11520U);
 static_assert(body_scratch_max.coded_bits == 23040U);
@@ -485,7 +485,7 @@ static_assert(body_scratch_max.survivors == 737280U);
 // continuous stream across blocks with flush at the transmission end, so a
 // receiver can concatenate these per-block metrics and run a single
 // continuous Viterbi over the whole transmission: per-block decoding leaves
-// each boundary's trailing bits unterminated and pins the next block to a
+// each boundary's trailing bits unterminated and ties the next block to a
 // single possibly-wrong state, which measurably concentrates rare-tail
 // errors in the ~30 bits straddling every block boundary. Coded rates only.
 [[nodiscard]] Status body_block_soft_metrics(IQSampleSpan received_symbols, const BodyBlockPlan& plan, BodyDecodeScratch scratch, std::span<float> rate_half_soft) noexcept;
