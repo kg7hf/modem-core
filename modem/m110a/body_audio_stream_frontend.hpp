@@ -20,6 +20,7 @@
 // block-split invariant. Emits BodyFrontendSymbol {early, on_time} T/2 pairs.
 // Explained in the article series, Part 3 (the audio front end); its unit tests
 // are tests/front_end_tests.cpp.
+// Teaching walkthrough: modem/m110a/audio-front-end-explainer.md
 // =============================================================================
 
 namespace modem::m110a
@@ -53,9 +54,11 @@ struct BodyFrontendSymbol
 // split into blocks. The timing position is held as a whole sample count plus a
 // fraction, so precision does not degrade over a long capture the way a single
 // float position does. There is no initial phase search: the tracking loop
-// pulls in from any starting phase during the preamble (0.6 s with the short
-// interleaver, 4.8 s with the long one). The matched filter is evaluated only at
-// the interpolation points the loop reads.
+// pulls in during the preamble (0.6 s with the short interleaver, 4.8 s with the
+// long one). Started near half a symbol off the peaks, though, it hangs on the
+// detector's unstable zero for about 2000 symbols, longer than the short
+// interleaver's 1440-symbol preamble (the 600S tests in tests/front_end_tests.cpp).
+// The matched filter is evaluated only at the interpolation points the loop reads.
 class BodyAudioStreamFrontend
 {
 public:

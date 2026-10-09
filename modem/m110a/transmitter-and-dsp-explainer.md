@@ -124,7 +124,8 @@ contracts and bit order, not channel robustness.
    `body_tribits_to_audio` is a one-shot wrapper over `BodyAudioStreamModulator`:
    `initialize` builds the root-raised-cosine pulse with `make_root_raised_cosine_taps`
    (in `modem/common/dsp/timing_recovery.cpp`), and `render_window` shapes the 8-PSK
-   symbols with it and upconverts them to the 1800 Hz carrier.
+   symbols with it and upconverts them to the 1800 Hz carrier, which it reads from the
+   80-entry `body_carrier_table` in `body_waveform.hpp`.
 
 ---
 

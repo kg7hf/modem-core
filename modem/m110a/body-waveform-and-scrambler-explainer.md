@@ -210,7 +210,8 @@ Every short block totals **1440 transmitted symbols**; a long block is ×8 (11,5
 - **`body_tribits_to_iq` / `body_tribits_to_audio` / `BodyAudioStreamModulator`:** Render
   symbols to complex IQ, or to real 48 kHz audio: RRC pulse-shape (rolloff 0.25, 20
   samples/symbol), scale to 0.98 of the worst polyphase peak (headroom), and upconvert to
-  the **1800 Hz** carrier, retaining phase across windows.
+  the **1800 Hz** carrier, read from the 80-entry `body_carrier_table` (the carrier
+  repeats every 80 samples), keeping its place across windows.
 
 ---
 
