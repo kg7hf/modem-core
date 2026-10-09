@@ -161,7 +161,7 @@ input bit:  0    0    0    1    0    0    1    0
 coded pair: 00   00   00   11   01   11   00   01
 ```
 
-Look at the fourth column. The input bit there is the first 1 in 'H', and both coded bits change. The encoder's memory then affects the pairs after it, even where the inputs are 0 again. Each input bit influences seven coded pairs, fourteen coded bits, which is what lets the receiver recover it after the channel corrupts some of them.
+Look at the fourth column. The input bit there is the first 1 in 'H', and both coded bits change. The encoder's memory then affects the pairs after it, even where the inputs are 0 again. Each input bit stays in the encoder for seven coded pairs and shapes ten of their fourteen coded bits (each generator has five taps), which is what lets the receiver recover it after the channel corrupts some of them.
 
 Because 600L is BPSK, each coded bit becomes one symbol on its own; there is no gathering into threes. A coded 0 maps to tribit 0 and a coded 1 maps to tribit 4, the two points at 0 and 180 degrees:
 

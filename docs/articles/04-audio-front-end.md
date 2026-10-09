@@ -261,7 +261,7 @@ The fix belongs with the receiver's conformance testing, later in the series, so
 
 Part 2's transmitter had `tx_demo` and two golden tests, which check every transmitted symbol against a saved snapshot and the first samples of the waveform. It now has unit tests as well, in `tests/transmit_chain_tests.cpp`, following that article's sections: the plan, the FEC, each rate's block plan, the interleaver, the Gray map, the randomizer, the carrier and the walk. Every number Part 2 quotes came out of them unchanged.
 
-One sentence needed correcting. Part 2 says each input bit "influences seven coded pairs, fourteen coded bits". The bit stays in the encoder for seven pairs, but each generator, 133 and 171 octal, has five taps, so ten of those fourteen coded bits depend on it; in the fifth pair, neither coded bit does.
+One sentence needed correcting. Part 2 said each input bit "influences seven coded pairs, fourteen coded bits". The bit stays in the encoder for seven pairs, but each generator, 133 and 171 octal, has five taps, so ten of those fourteen coded bits depend on it; in the fifth pair, neither coded bit does. Part 2 now says so.
 
 ## Go read the code, and the standard
 
