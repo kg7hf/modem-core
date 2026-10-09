@@ -122,13 +122,21 @@ if(MODEM_BUILD_TESTS)
     endif()
     # Before catch_discover_tests (below) runs the program to list its tests.
     modem_copy_runtime(front_end_tests)
+
+    # Part 2's transmit chain, on the same bench.
+    add_executable(transmit_chain_tests tests/transmit_chain_tests.cpp)
+    target_link_libraries(transmit_chain_tests PRIVATE modem_tx Catch2::Catch2WithMain)
+    if(NOT MODEM_PRINT_LINKS)
+        target_link_libraries(transmit_chain_tests PRIVATE stdc++exp)
+    endif()
+    modem_copy_runtime(transmit_chain_tests)
 endif()
 
 # --- Apply the warning/tooling flags to our own targets (GCC/Clang). ---
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set(MODEM_OWN_TARGETS modem_tx tx_demo)
     if(MODEM_BUILD_TESTS)
-        list(APPEND MODEM_OWN_TARGETS front_end_tests)
+        list(APPEND MODEM_OWN_TARGETS front_end_tests transmit_chain_tests)
     endif()
     foreach(target ${MODEM_OWN_TARGETS})
         target_compile_options(${target} PRIVATE -Wall -Wextra)
@@ -141,7 +149,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         endif()
         # The stack bound is a claim about the modem; a test fixture may hold a whole
         # front end on its stack, so the tests are not part of it.
-        if(MODEM_STACK_USAGE AND NOT target STREQUAL "front_end_tests")
+        if(MODEM_STACK_USAGE AND NOT target MATCHES "_tests$")
             target_compile_options(${target} PRIVATE -fstack-usage)
         endif()
     endforeach()
@@ -168,4 +176,5 @@ if(MODEM_BUILD_TESTS)
     catch_discover_tests(front_end_tests TEST_PREFIX "front_end: ")
     catch_discover_tests(front_end_tests TEST_SPEC "[long]" TEST_PREFIX "long: " PROPERTIES LABELS long)
     catch_discover_tests(front_end_tests TEST_SPEC "[report]" TEST_PREFIX "report: " PROPERTIES LABELS report)
+    catch_discover_tests(transmit_chain_tests TEST_PREFIX "transmit: ")
 endif()
