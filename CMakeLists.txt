@@ -67,9 +67,39 @@ if(NOT MODEM_PRINT_LINKS)
     target_link_libraries(tx_demo PRIVATE stdc++exp)
 endif()
 
+# --- The test bench (from Part 3): Catch2 tests over the real transmitter. ---
+# Catch2 is fetched at configure time, fixed to one release by its commit. The modem
+# builds without exceptions, and so does Catch2: a failed REQUIRE ends that test's
+# process, and each test case runs as its own CTest test.
+include(FetchContent)
+set(CATCH_CONFIG_DISABLE_EXCEPTIONS ON CACHE BOOL "Build Catch2 without exceptions, like the modem" FORCE)
+FetchContent_Declare(Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG 317ac1ed4c0bb6e6b91eafc817e05c488feffcb3 # v3.16.0
+    SYSTEM)
+FetchContent_MakeAvailable(Catch2)
+list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+include(Catch)
+
+add_executable(front_end_tests
+    tests/front_end_tests.cpp
+    tests/support/front_end_harness.cpp
+    tests/support/impairments.cpp
+    tests/support/test_channel.cpp
+    tests/support/test_waveform.cpp)
+target_link_libraries(front_end_tests PRIVATE modem_tx Catch2::Catch2WithMain)
+if(NOT MODEM_PRINT_LINKS)
+    target_link_libraries(front_end_tests PRIVATE stdc++exp)
+endif()
+# A fully static MinGW build keeps another toolchain's runtime DLLs on the PATH (Git for
+# Windows carries an older libstdc++) from being loaded by mistake.
+if(MINGW)
+    target_link_options(front_end_tests PRIVATE -static)
+endif()
+
 # --- Apply the warning/tooling flags to our own targets (GCC/Clang). ---
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(target modem_tx tx_demo)
+    foreach(target modem_tx tx_demo front_end_tests)
         target_compile_options(${target} PRIVATE -Wall -Wextra)
         if(MODEM_WERROR)
             target_compile_options(${target} PRIVATE -Werror)
@@ -98,3 +128,9 @@ set_tests_properties(tx_golden PROPERTIES
 add_test(NAME tx_golden_symbols COMMAND tx_demo Hi)
 set_tests_properties(tx_golden_symbols PROPERTIES
     PASS_REGULAR_EXPRESSION "23040 transmitted tribits, FNV-1a 6097e9da9fbb6255")
+
+# Every Catch2 test case is its own CTest test, so each shows up in VS Code's Testing
+# panel. Hidden cases run only when asked for: ctest -L long, or ctest -L report.
+catch_discover_tests(front_end_tests TEST_PREFIX "front_end: ")
+catch_discover_tests(front_end_tests TEST_SPEC "[long]" TEST_PREFIX "long: " PROPERTIES LABELS long)
+catch_discover_tests(front_end_tests TEST_SPEC "[report]" TEST_PREFIX "report: " PROPERTIES LABELS report)
