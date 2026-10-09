@@ -75,11 +75,12 @@ using ::modem::common::make_root_raised_cosine_taps;
 using ::modem::common::MutableBitSpan;
 using ::modem::common::MutableIQSampleSpan;
 using ::modem::common::MutableSampleSpan;
+using ::modem::common::narrow;
 using ::modem::common::Result;
+using ::modem::common::round_to;
 using ::modem::common::shift_in_bit;
 using ::modem::common::Status;
 using ::modem::common::StatusCode;
-using ::modem::common::two_pi;
 using ::modem::common::WaveformConfig;
 using ::modem::common::WaveformFamily;
 using ::modem::common::with_bit;
@@ -433,14 +434,20 @@ Status BodyAudioStreamModulator::initialize(float carrier_phase_radians) noexcep
     }
 
     mAmplitudeScale = 0.98F / worst_polyphase_sum;
-    mCarrierPhaseRadians = carrier_phase_radians;
+    // The starting phase is a whole number of 2 pi / 80 steps (0, or a value returned by carrier_phase_radians()).
+    // Table entry n holds phase 3n steps, so the entry for u steps is u times the inverse of 3 mod 80.
+    constexpr auto period = narrow<std::int64_t>(body_carrier_period_samples);
+    constexpr std::int64_t inverse_of_three = 27;
+    static_assert((3 * inverse_of_three) % period == 1, "27 is the inverse of 3 mod 80");
+    const auto units = round_to<std::int64_t>(carrier_phase_radians / body_carrier_table_radians);
+    mCarrierIndex = narrow<std::size_t>((((units % period) + period) % period) * inverse_of_three % period);
     mInitialized = true;
     return Status::success();
 }
 
 void BodyAudioStreamModulator::reset() noexcept
 {
-    mCarrierPhaseRadians = 0.0F;
+    mCarrierIndex = 0U;
 }
 
 // -----------------------------------------------------------------------------
@@ -474,7 +481,6 @@ Status BodyAudioStreamModulator::render_window(BitSpan symbols, std::size_t firs
         return {StatusCode::buffer_too_small, "body audio output too small"};
     }
 
-    constexpr float carrier_step = body_carrier_radians_per_sample;
     constexpr auto samples_per_symbol = body_audio_samples_per_symbol;
     constexpr auto half_span = body_audio_shaping_span_symbols * body_audio_samples_per_symbol;
     const auto first_output_sample = first_output_symbol * samples_per_symbol;
@@ -501,12 +507,11 @@ Status BodyAudioStreamModulator::render_window(BitSpan symbols, std::size_t firs
             }
         }
 
-        output[output_index] = mAmplitudeScale * std::real(baseband * std::polar(1.0F, mCarrierPhaseRadians));
-        mCarrierPhaseRadians += carrier_step;
+        output[output_index] = mAmplitudeScale * std::real(baseband * body_carrier_table[mCarrierIndex]);
 
-        if (mCarrierPhaseRadians >= two_pi)
+        if (++mCarrierIndex == body_carrier_period_samples)
         {
-            mCarrierPhaseRadians -= two_pi;
+            mCarrierIndex = 0U;
         }
     }
 

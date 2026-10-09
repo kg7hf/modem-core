@@ -42,6 +42,9 @@ if(MSVC)
     target_compile_definitions(modem_tx PUBLIC $<$<COMPILE_LANGUAGE:CXX>:_HAS_EXCEPTIONS=0>)
 else()
     target_compile_options(modem_tx PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions> $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>)
+    # No fused multiply-add: a*b+c rounds twice on every target, so the float results do not
+    # depend on the compiler or the optimization level (Part 3, "The compiler changed the math").
+    target_compile_options(modem_tx PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-ffp-contract=off>)
 endif()
 
 add_executable(tx_demo tests/tx_demo.cpp)
@@ -80,13 +83,13 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     endforeach()
 endif()
 
-# --- Golden regression tests for the 600L "Hi" burst. tx_golden_symbols pins
+# --- Golden regression tests for the 600L "Hi" burst. tx_golden_symbols checks
 #     every transmitted tribit (an integer hash, the same on every platform), so
 #     one changed bit in framing, coding, interleaving, mapping, probes or
-#     scrambling fails it. tx_golden pins the rendered audio's length and first
+#     scrambling fails it. tx_golden checks the rendered audio's length and first
 #     samples, printed to five decimals so that last-bit differences between
-#     compilers, optimization levels and math libraries cannot fail it (an
-#     optimizer may fuse the carrier's cos and sin into one sincos call). ---
+#     math libraries cannot fail it (the filter taps are still computed with the
+#     library's cosine when the modulator starts). ---
 enable_testing()
 add_test(NAME tx_golden COMMAND tx_demo Hi)
 set_tests_properties(tx_golden PROPERTIES
