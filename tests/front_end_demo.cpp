@@ -2,40 +2,36 @@
 // Copyright (C) 2026 Paul R. Decker (KG7HF)
 
 // =============================================================================
-// front_end_demo - walk the receive front end, step by step
+// front_end_demo - walk the message "Hi" back out through the receive front end
 // =============================================================================
-// The companion program to the Signal Path article "The audio front end: finding
-// the symbols", as tx_demo is to "The transmit chain". Each numbered step runs one
-// piece of the front end on known data (the 600L "Hi" burst from the real
-// transmitter, a pure tone, the receive pulse) and prints the numbers the article
-// quotes. The steps live in tests/walkthrough/front_end_steps.cpp, and
-// front_end_tests checks the same functions with Catch2, so set a breakpoint in a
-// step and step through it from either one.
+// This is the companion program to the Signal Path article "The audio front end:
+// finding the symbols", as tx_demo is to "The transmit chain". It works in the
+// 600 bps, long-interleave mode ("600L") and runs the article's steps in order:
+// the carrier, a pure tone, one symbol mixed down, the matched filter, the timing
+// error, the timing position, the front end over the whole "Hi" burst, carrier
+// tracking, and the symbols walked back out to Part 2's randomizer.
+//
+// Each step is one function in tests/walkthrough/front_end_steps.cpp that runs a
+// piece of the front end on known data and returns its numbers; print() shows
+// them. front_end_tests calls the same functions and checks what they return, so
+// set a breakpoint in a step and step through it from either one.
 //
 //   Build:  cmake -B build && cmake --build build
-//   Run:    ./build/front_end_demo        (every step)
-//           ./build/front_end_demo 3      (one step; "all" runs every step)
+//   Run:    ./build/front_end_demo
 // =============================================================================
 
-#include "modem/common/convert.hpp"
 #include "modem/common/status.hpp"
 #include "tests/walkthrough/front_end_steps.hpp"
 
-#include <array>
-#include <charconv>
 #include <cstdio>
 #include <print>
-#include <span>
-#include <string_view>
+
+using namespace modem_test::front_end_steps;
+using ::modem::common::Result;
 
 namespace
 {
-
-using namespace ::modem_test::front_end_steps;
-using ::modem::common::narrow;
-using ::modem::common::Result;
-
-// Prints a step's numbers, or why it could not run.
+// Prints a step's numbers, or says why it could not run.
 template <typename Step> bool show(const Result<Step>& step)
 {
     if (!step)
@@ -46,63 +42,80 @@ template <typename Step> bool show(const Result<Step>& step)
     print(step.value());
     return true;
 }
-
-struct DemoStep
-{
-    std::string_view title;
-    bool (*run)();
-};
-
-constexpr std::array<DemoStep, 9> steps{{
-    {"The 1800 Hz carrier: 80 samples, three whole cycles",
-     []
-     {
-         print(carrier_table());
-         return true;
-     }},
-    {"A tone on the carrier mixes down to a constant; one 10 Hz off turns", [] { return show(tone_mix(1800U)) && show(tone_mix(1810U)); }},
-    {"Part 2's tribit 6, mixed down from 1800 Hz", [] { return show(tribit6_mix()); }},
-    {"The matched filter, and what it leaves at the other symbols' instants", [] { return show(receive_filter()) && show(pulse_neighbors(0.25F)) && show(pulse_neighbors(0.35F)); }},
-    {"The early-late timing error, on and off the peak", [] { return show(timing_error()); }},
-    {"Keeping time for hours: a float position against whole samples plus a fraction",
-     []
-     {
-         print(float_position());
-         return true;
-     }},
-    {"Any block size, the same symbols", [] { return show(block_sizes()); }},
-    {"Carrier tracking, part one", [] { return show(carrier_tracking()); }},
-    {"Walk the symbols back out", [] { return show(walk()); }},
-}};
-
 } // namespace
 
-int main(int argc, char** argv)
+int main()
 {
-    const std::span<char*> args(argv, narrow<std::size_t>(argc));
-    std::size_t only{};
-    if (args.size() > 1U && std::string_view{args[1]} != "all")
+    std::println("== Receive front end walkthrough (600 bps, long interleave) ==\n");
+
+    // 1. The carrier. 1800 Hz at 48 kHz turns 13.5 degrees a sample and is back where it
+    //    started after 80 samples (three cycles), so 80 constants hold all of it. The
+    //    transmitter modulates with this table, and the receiver mixes with it.
+    std::println("1. The 1800 Hz carrier: 80 samples, three whole cycles");
+    print(carrier_table());
+
+    // 2. A pure tone through the front end. On the carrier it mixes down to 0 Hz and comes
+    //    out a constant; ten hertz off, it comes out turning by 10 Hz, 2 pi x 10 / 2400
+    //    radians a symbol.
+    std::println("\n2. A tone on the carrier mixes down to a constant; one 10 Hz off turns");
+    if (!show(tone_mix(1800U)) || !show(tone_mix(1810U)))
     {
-        const std::string_view text = args[1];
-        const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), only);
-        if (error != std::errc{} || end != text.data() + text.size() || only < 1U || only > steps.size())
-        {
-            std::println(stderr, "usage: front_end_demo [step 1-{} | all]", steps.size());
-            return 1;
-        }
+        return 1;
     }
 
-    std::println("== Receive front end walkthrough (600L, the message \"Hi\") ==\n");
-    bool all_ran = true;
-    for (std::size_t k = 0U; k < steps.size(); ++k)
+    // 3. One symbol, mixed down by hand. Body symbol 5 of the "Hi" burst is tribit 6, Part 2's
+    //    worked symbol at 270 degrees. Each mixed sample is the symbol plus a copy turning the
+    //    other way at 3600 Hz; the matched filter averages the copy away and leaves one point.
+    std::println("\n3. Part 2's tribit 6, mixed down from 1800 Hz");
+    if (!show(tribit6_mix()))
     {
-        if (only != 0U && only != k + 1U)
-        {
-            continue;
-        }
-        std::println("{}. {}", k + 1U, steps[k].title);
-        all_ran = steps[k].run() && all_ran;
-        std::println("");
+        return 1;
     }
-    return all_ran ? 0 : 1;
+
+    // 4. The matched filter: 161 root-raised-cosine taps. Then the transmit pulse through it,
+    //    and how much of one symbol lands on its neighbors' instants, for a receive rolloff
+    //    of 0.25 (matched to the transmitter) and of 0.35 (what the front end uses).
+    std::println("\n4. The matched filter, and what it leaves at the other symbols' instants");
+    if (!show(receive_filter()) || !show(pulse_neighbors(0.25F)) || !show(pulse_neighbors(0.35F)))
+    {
+        return 1;
+    }
+
+    // 5. The early-late timing error on the receive pulse: zero on the peak, positive when the
+    //    loop reads early, negative when it reads late, and the same whatever the carrier phase.
+    std::println("\n5. The early-late timing error, on and off the peak");
+    if (!show(timing_error()))
+    {
+        return 1;
+    }
+
+    // 6. Why the timing position is whole samples plus a fraction. A float holds 24 bits; 23
+    //    minutes in, it cannot even add the 20 samples of one symbol.
+    std::println("\n6. Keeping time for hours: a float position against whole samples plus a fraction");
+    print(float_position());
+
+    // 7. The real front end over the whole "Hi" burst, 480 samples at a time, and again in
+    //    ragged blocks of 1, 7, 33, 160 and 480 samples: the same symbols, bit for bit.
+    std::println("\n7. Any block size, the same symbols");
+    if (!show(block_sizes()))
+    {
+        return 1;
+    }
+
+    // 8. Carrier tracking with the receiver's gains: given symbols turned by a fixed 0.5 rad it
+    //    learns 0.5 rad, and given symbols turning at 5 Hz it learns 5 Hz.
+    std::println("\n8. Carrier tracking, part one");
+    if (!show(carrier_tracking()))
+    {
+        return 1;
+    }
+
+    // 9. Walk the symbols back out: the nearest of the eight phases, minus Part 2's randomizer,
+    //    is the BPSK data, tribit 0 for a coded 0 and tribit 4 for a coded 1.
+    std::println("\n9. Walk the symbols back out");
+    if (!show(walk()))
+    {
+        return 1;
+    }
+    return 0;
 }
