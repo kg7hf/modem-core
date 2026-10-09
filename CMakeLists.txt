@@ -88,17 +88,33 @@ if(NOT MODEM_PRINT_LINKS)
     target_link_libraries(tx_demo PRIVATE stdc++exp)
 endif()
 
-# --- The test bench (from Part 3): Catch2 tests over the real transmitter. ---
-# Catch2 is an external test tool, a git submodule in external/catch2 fixed to one
-# release (v3.16.0) by its commit. It builds only for the tests, never into the modem.
-# The modem builds without exceptions, and so does Catch2: a failed REQUIRE ends that
-# test's process, and each test case runs as its own CTest test.
+# --- The test bench (from Part 3) ---
+# The bench's shared code: the support kit and the articles' walkthrough steps. The demo
+# programs and the Catch2 tests both link it, so a demo prints exactly what a test checks.
+add_library(modem_test_bench STATIC
+    tests/support/front_end_harness.cpp
+    tests/support/impairments.cpp
+    tests/support/test_channel.cpp
+    tests/support/test_waveform.cpp
+    tests/walkthrough/front_end_steps.cpp)
+target_link_libraries(modem_test_bench PUBLIC modem_tx)
+if(NOT MODEM_PRINT_LINKS)
+    target_link_libraries(modem_test_bench PUBLIC stdc++exp)
+endif()
+
+# Part 3's companion program, as tx_demo is Part 2's: the walkthrough steps, numbered.
+add_executable(front_end_demo tests/front_end_demo.cpp)
+target_link_libraries(front_end_demo PRIVATE modem_test_bench)
+modem_copy_runtime(front_end_demo)
+
+# The Catch2 tests. Catch2 is an external test tool, a git submodule in external/catch2
+# fixed to one release (v3.16.0) by its commit. It builds only for the tests, never into
+# the modem. The modem builds without exceptions, and so does Catch2: a failed REQUIRE
+# ends that test's process, and each test case runs as its own CTest test.
 if(MODEM_BUILD_TESTS)
     if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/catch2/CMakeLists.txt)
-        message(FATAL_ERROR "The unit tests need Catch2, a git submodule. Run
-"
-                            "  git submodule update --init
-"
+        message(FATAL_ERROR "The unit tests need Catch2, a git submodule. Run\n"
+                            "  git submodule update --init\n"
                             "or configure with -DMODEM_BUILD_TESTS=OFF to build without the tests.")
     endif()
     set(CATCH_CONFIG_DISABLE_EXCEPTIONS ON CACHE BOOL "Build Catch2 without exceptions, like the modem" FORCE)
@@ -110,16 +126,8 @@ if(MODEM_BUILD_TESTS)
     list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/catch2/extras)
     include(Catch)
 
-    add_executable(front_end_tests
-        tests/front_end_tests.cpp
-        tests/support/front_end_harness.cpp
-        tests/support/impairments.cpp
-        tests/support/test_channel.cpp
-        tests/support/test_waveform.cpp)
-    target_link_libraries(front_end_tests PRIVATE modem_tx Catch2::Catch2WithMain)
-    if(NOT MODEM_PRINT_LINKS)
-        target_link_libraries(front_end_tests PRIVATE stdc++exp)
-    endif()
+    add_executable(front_end_tests tests/front_end_tests.cpp)
+    target_link_libraries(front_end_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
     # Before catch_discover_tests (below) runs the program to list its tests.
     modem_copy_runtime(front_end_tests)
 
@@ -134,7 +142,7 @@ endif()
 
 # --- Apply the warning/tooling flags to our own targets (GCC/Clang). ---
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    set(MODEM_OWN_TARGETS modem_tx tx_demo)
+    set(MODEM_OWN_TARGETS modem_tx tx_demo modem_test_bench front_end_demo)
     if(MODEM_BUILD_TESTS)
         list(APPEND MODEM_OWN_TARGETS front_end_tests transmit_chain_tests)
     endif()
@@ -147,9 +155,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             target_compile_options(${target} PRIVATE --coverage -O0 -g)
             target_link_options(${target} PRIVATE --coverage)
         endif()
-        # The stack bound is a claim about the modem; a test fixture may hold a whole
-        # front end on its stack, so the tests are not part of it.
-        if(MODEM_STACK_USAGE AND NOT target MATCHES "_tests$")
+        # The stack bound is a claim about the modem and tx_demo; the bench and its
+        # programs may hold a whole front end on the stack, so they are not part of it.
+        if(MODEM_STACK_USAGE AND (target STREQUAL "modem_tx" OR target STREQUAL "tx_demo"))
             target_compile_options(${target} PRIVATE -fstack-usage)
         endif()
     endforeach()
@@ -169,6 +177,8 @@ set_tests_properties(tx_golden PROPERTIES
 add_test(NAME tx_golden_symbols COMMAND tx_demo Hi)
 set_tests_properties(tx_golden_symbols PROPERTIES
     PASS_REGULAR_EXPRESSION "23040 transmitted tribits, FNV-1a 6097e9da9fbb6255")
+# Part 3's demo runs every walkthrough step and exits non-zero if one cannot.
+add_test(NAME front_end_demo COMMAND front_end_demo)
 
 # Every Catch2 test case is its own CTest test, so each shows up in VS Code's Testing
 # panel. Hidden cases run only when asked for: ctest -L long, or ctest -L report.
