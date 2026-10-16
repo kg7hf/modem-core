@@ -65,6 +65,42 @@
       "problemMatcher": []
     },
     {
+      "label": "Run acquisition_demo",
+      "type": "process",
+      "dependsOn": "Build",
+      "command": "${command:cmake.buildDirectory}/acquisition_demo",
+      "windows": {
+        "command": "${command:cmake.buildDirectory}/acquisition_demo.exe"
+      },
+      "args": [],
+      "options": {
+        "cwd": "${command:cmake.buildDirectory}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run runner",
+      "type": "process",
+      "dependsOn": "Build",
+      "command": "${command:cmake.buildDirectory}/runner",
+      "windows": {
+        "command": "${command:cmake.buildDirectory}/runner.exe"
+      },
+      "args": [
+        "Hi",
+        "--snr",
+        "10",
+        "--carrier",
+        "37"
+      ],
+      "options": {
+        "cwd": "${command:cmake.buildDirectory}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
       "label": "Tests",
       "type": "cmake",
       "command": "test",

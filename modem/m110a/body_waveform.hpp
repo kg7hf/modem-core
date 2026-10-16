@@ -231,9 +231,19 @@ struct BodyDecodeScratch
     MutableBitSpan survivors{};
 };
 
+// Carried across the blocks of one burst: the K=7 encoder state the next block's
+// trellis starts from, and, over the blocks decoded so far, how many of the rate-1/2
+// code bits that the decoded information re-encodes to disagree with the hard
+// decisions of the received code bits, and how many were compared (none for the
+// uncoded 4800 bps mode). Their ratio is a decoded block's own quality figure in the
+// FEC's domain: near one half for a block whose symbols the deinterleaver scrambled, a
+// fraction of that for a block decoded through the channel's errors. A reader takes
+// differences between blocks.
 struct BodyDecodeState
 {
     std::uint8_t fec_state{};
+    std::uint64_t coded_bit_mismatches{};
+    std::uint64_t coded_bits_compared{};
 };
 
 // The designator table lives in the header (constexpr) so body_block_plan can be

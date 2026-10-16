@@ -9,8 +9,10 @@ Complex-mix each 48 kHz sample against the 1800 Hz carrier into a ring,
 RRC matched-filter it (161 taps, rolloff 0.35), and run an early-late timing
 loop. All state is retained across calls, so the recovered symbols are
 INVARIANT to how the sample stream is split into blocks. The timing position is
-a whole sample count plus a fraction (precision over a long capture); there is
-no whole-buffer phase search (the loop pulls in during the preamble).
+a whole sample count plus a fraction (precision over a long capture). There is
+no whole-buffer phase search: the loop pulls in during the preamble, and the phase
+search (set_phase_search) moves it half a symbol when it starts hung between the
+peaks. An optional rate integrator (configure_timing_tracker) carries a clock offset.
   INPUT  : SampleSpan captured audio.
   OUTPUT : BodyFrontendSymbol {early, on_time} per symbol (T/2 pair).
 ================================================================================
@@ -31,17 +33,21 @@ no whole-buffer phase search (the loop pulls in during the preamble).
 namespace modem::m110a
 {
 
+using ::modem::common::approx_real;
 using ::modem::common::as_real;
 using ::modem::common::clamp_to_size;
 using ::modem::common::floor_to;
 using ::modem::common::IQSample;
 using ::modem::common::make_root_raised_cosine_taps;
 using ::modem::common::ring_slot;
+using ::modem::common::round_to;
 using ::modem::common::SampleSpan;
 using ::modem::common::Status;
 using ::modem::common::StatusCode;
 
 constexpr float clip_threshold = 0.999F;
+// The phase search averages the energy of the two off-time points, early and late.
+constexpr float off_time_points = 2.0F;
 
 Status BodyAudioStreamFrontend::initialize(float timing_loop_gain, float maximum_timing_step, float receive_rolloff) noexcept
 {
@@ -72,7 +78,29 @@ void BodyAudioStreamFrontend::reset() noexcept
     mSymbolsProduced = 0U;
     mPositionSample = timing_start_sample;
     mPositionFraction = 0.0F;
+    // The rate integrator is held until the receiver has it track a preamble; its gain
+    // stays. The phase search is off until the receiver turns it on.
+    set_timing_rate_mode(TimingRateMode::held);
+    mPhaseSearch = false;
+    mPhaseOnEnergy = 0.0F;
+    mPhaseOffEnergy = 0.0F;
+    mPhaseWindowSymbols = 0U;
+    mPhaseWindowsOff = 0U;
+    mPhaseFastGain = false;
     mClippedSamples = 0U;
+}
+
+void BodyAudioStreamFrontend::configure_timing_tracker(bool enabled, float integral_gain) noexcept
+{
+    mTimingIntegralGain = (enabled && integral_gain > 0.0F) ? integral_gain : 0.0F;
+    mTimingRate = 0.0F;
+}
+
+float BodyAudioStreamFrontend::timing_rate_mean() const noexcept
+{
+    // The sum is at most 2^20 x 0.2 x 2^32, and the rounding of its float image (past 2^24)
+    // is far below the rate's own resolution.
+    return mTimingRateSamples == 0U ? 0.0F : approx_real(mTimingRateSum) / (timing_rate_mean_scale * as_real(mTimingRateSamples));
 }
 
 IQSample BodyAudioStreamFrontend::filtered_at(std::uint64_t sample_index) const noexcept
@@ -146,8 +174,59 @@ Status BodyAudioStreamFrontend::process(SampleSpan captured, std::span<BodyFront
         const auto timing_error = early_late_timing_error(early, on_time, late);
         const auto energy = std::norm(early) + std::norm(on_time) + std::norm(late);
         const auto normalization = std::max(energy, 1.0e-6F);
-        const auto correction = std::clamp(mTimingLoopGain * timing_error / normalization, -mMaximumTimingStep, mMaximumTimingStep);
-        mPositionFraction += as_real(body_audio_samples_per_symbol) + correction;
+
+        // The phase search: more energy half a symbol off the loop's points than on them,
+        // summed over a window, is the sign of a loop hung half a symbol off the peaks; it is
+        // moved half a symbol forward, onto them.
+        float phase_move = 0.0F;
+        if (mPhaseSearch)
+        {
+            mPhaseOnEnergy += std::norm(on_time);
+            mPhaseOffEnergy += (std::norm(early) + std::norm(late)) / off_time_points;
+
+            if (++mPhaseWindowSymbols >= phase_search_window_symbols)
+            {
+                mPhaseWindowsOff = mPhaseOffEnergy > mPhaseOnEnergy * (1.0F + phase_search_margin) ? mPhaseWindowsOff + 1U : 0U;
+                mPhaseFastGain = mPhaseOffEnergy > mPhaseOnEnergy * phase_search_fast_gain_ratio;
+
+                if (mPhaseWindowsOff >= 2U)
+                {
+                    phase_move = as_real(half_symbol_samples);
+                    ++mPhaseSearchMoves;
+                    mPhaseWindowsOff = 0U;
+                }
+
+                mPhaseOnEnergy = 0.0F;
+                mPhaseOffEnergy = 0.0F;
+                mPhaseWindowSymbols = 0U;
+            }
+        }
+
+        const auto loop_gain = mPhaseSearch && mPhaseFastGain ? phase_search_loop_gain : mTimingLoopGain;
+        float correction = 0.0F;
+        if (mTimingIntegralGain > 0.0F && mTimingRateMode != TimingRateMode::held)
+        {
+            // Type 2: the integrator carries the clock's rate, and the proportional term only
+            // the jitter. It integrates while tracking; frozen, the rate stands. Both are
+            // limited to the step limit, which is far beyond any real clock offset.
+            const auto normalized_error = timing_error / normalization;
+
+            if (mTimingRateMode == TimingRateMode::tracking)
+            {
+                mTimingRate = std::clamp(mTimingRate + mTimingIntegralGain * normalized_error, -mMaximumTimingStep, mMaximumTimingStep);
+            }
+
+            mTimingRateSum += round_to<std::int64_t>(mTimingRate * timing_rate_mean_scale);
+            ++mTimingRateSamples;
+
+            correction = std::clamp(loop_gain * normalized_error + mTimingRate, -mMaximumTimingStep, mMaximumTimingStep);
+        }
+        else
+        {
+            // Type 1, the default, and the tracker while held: the proportional loop.
+            correction = std::clamp(loop_gain * timing_error / normalization, -mMaximumTimingStep, mMaximumTimingStep);
+        }
+        mPositionFraction += as_real(body_audio_samples_per_symbol) + correction + phase_move;
         const auto whole = std::floor(mPositionFraction);
         mPositionSample += floor_to<std::uint64_t>(whole); // whole is already integral and positive
         mPositionFraction -= whole;

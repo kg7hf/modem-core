@@ -2,7 +2,7 @@
 
 This repository is the transmit side of a MIL-STD-188-110A/B serial-tone HF modem
 (everything between a message and the audio a radio puts on the air) and the first
-stage of its receiver. This page is the map. It shows the big picture, walks the
+stages of its receiver, the front end and acquisition. This page is the map. It shows the big picture, walks the
 transmit chain in the order the data flows, lists which file does what, and suggests a
 reading order. It closes with the receive side so far and a look ahead at the next
 stage.
@@ -86,14 +86,20 @@ What ships today, and where each piece is explained.
 | Root-raised-cosine pulse | `common/dsp/timing_recovery.*` | transmitter explainer, section 8 |
 | Receive front end: mix down, matched filter, symbol timing | `m110a/body_audio_stream_frontend.*` | the audio front end article and explainer |
 | Carrier tracking | `common/dsp/timing_recovery.*` | the audio front end article and explainer |
+| Acquisition: find the burst, read its mode and countdown | `m110a/synchronization.*` | the acquisition article and explainer |
+| The front end's phase search and rate integrator | `m110a/body_audio_stream_frontend.*` | the acquisition article; the audio front end explainer |
 | Shared vocabulary: `Real`, units, status and results, bit spans | `common/*`, `common/units/*` | the comments in each header |
 
 The demo and the golden-waveform test are [`tests/tx_demo.cpp`](../tests/tx_demo.cpp);
 the transmit chain's unit tests are
 [`tests/transmit_chain_tests.cpp`](../tests/transmit_chain_tests.cpp); the front end's demo and unit tests are [`tests/front_end_demo.cpp`](../tests/front_end_demo.cpp)
-and [`tests/front_end_tests.cpp`](../tests/front_end_tests.cpp), which share the walkthrough
-steps in [`tests/walkthrough/`](../tests/walkthrough/) and the test bench in
-[`tests/support/`](../tests/support/).
+and [`tests/front_end_tests.cpp`](../tests/front_end_tests.cpp), and acquisition's are
+[`tests/acquisition_demo.cpp`](../tests/acquisition_demo.cpp) and
+[`tests/acquisition_tests.cpp`](../tests/acquisition_tests.cpp); each pair shares the
+walkthrough steps in [`tests/walkthrough/`](../tests/walkthrough/) and the test bench in
+[`tests/support/`](../tests/support/). The runner, [`tests/runner.cpp`](../tests/runner.cpp),
+runs every stage so far end to end on your own message or a WAV file; its tests are
+[`tests/runner_tests.cpp`](../tests/runner_tests.cpp).
 [CONTRIBUTING](../CONTRIBUTING.md) covers the quality gates. Where the standard left a
 decision to the implementer, the call made is recorded in
 [standard interpretations](../modem/m110a/standard-interpretations.md).
@@ -124,6 +130,9 @@ the receiver articles.
    function in [`tests/walkthrough/front_end_steps.cpp`](../tests/walkthrough/front_end_steps.cpp),
    which [`tests/front_end_tests.cpp`](../tests/front_end_tests.cpp) also checks. Set a
    breakpoint in a step and step through it.
+7. The [acquisition article](articles/05-acquisition.md), then its
+   [explainer](../modem/m110a/synchronization-and-acquisition-explainer.md), with
+   `acquisition_demo` running the same way. Then run `runner` on a message of your own.
 
 Each explainer follows a common shape: a 50,000-foot view, a 5th-grade version, where
 the module sits in the pipeline, a function-by-function walkthrough, a small worked
@@ -133,17 +142,19 @@ debugging, and notes for maintainers.
 Then do what the [transmit-chain article](articles/03-transmit-chain.md) asks: open the
 standard beside the code and check the numbers yourself.
 
-## The receive side so far, and next: acquisition
+## The receive side so far, and next: the first path
 
 The transmitter is the easy half; everything about its signal is known in advance. The
 receiver starts with none of that. Here is the receive chain at the level the
-introduction describes it. The front end is here now; acquisition is next.
+introduction describes it. The front end and acquisition are here now; the earliest-path
+anchor is next.
 
 ```mermaid
 flowchart TD
-  A["48 kHz mono audio in"] --> B["Front end: mix to baseband + RRC matched filter + symbol timing (Part 3, here now)"]
-  B --> C["Acquisition: find the preamble, read the mode and countdown, locate the body, anchor on the earliest path (next article)"]
-  C --> D["Delay-spread estimate -> choose the equalizer geometry"]
+  A["48 kHz mono audio in"] --> B["Front end: mix to baseband + RRC matched filter + symbol timing (Part 3)"]
+  B --> C["Acquisition: find the preamble, read the mode and countdown, locate the body (Part 4)"]
+  C --> C2["Earliest-path anchor: start on the first path, not its echo (Part 5)"]
+  C2 --> D["Delay-spread estimate -> choose the equalizer geometry"]
   D --> E["Equalize: adaptive DFE / CIR-MMSE / turbo (host)"]
   E --> F["Dewhiten + soft-demap: 8-PSK symbol -> soft bits (LLRs)"]
   F --> G["Deinterleave: channel order -> encoder order"]
@@ -151,7 +162,7 @@ flowchart TD
   H --> I["FEC decode: continuous Viterbi / SISO (turbo)"]
   I --> J["EOM search + framing -> payload octets"]
   classDef next stroke-width:3px;
-  class C next;
+  class C2 next;
 ```
 
 The [audio front end article](articles/04-audio-front-end.md) covers the first stage.
@@ -159,16 +170,18 @@ The [audio front end article](articles/04-audio-front-end.md) covers the first s
 the 1800 Hz carrier down, filters, and finds and keeps each symbol's sampling instant.
 `CarrierTracker`, in [`timing_recovery.cpp`](../modem/common/dsp/timing_recovery.cpp), is
 the loop that removes what is left of the carrier's phase and frequency once the
-equalizer gives it decisions. The front end keeps time on a signal that is already there;
-it cannot tell where a burst starts, or which mode it uses. That is acquisition's job.
+equalizer gives it decisions. The [acquisition article](articles/05-acquisition.md)
+covers the second stage. [`synchronization.cpp`](../modem/m110a/synchronization.cpp) finds
+the preamble in the front end's symbols, measures the carrier offset, reads the mode and
+the countdown, and works out where the body starts; the front end gained a phase search
+and a rate integrator for the clock. On one path that is the whole story. On two, each path
+delivers its own copy of the preamble, and the strongest copy is not always the first.
 Think about these before the next article:
 
-1. The receiver knows the preamble in advance: `generate_body_preamble` in
-   [`body_waveform.cpp`](../modem/m110a/body_waveform.cpp) builds it from 480-symbol
-   segments. What makes a known sequence easy to find in noise, and how much of it
-   would you correlate against?
-2. Suppose the two radios' carriers are 20 Hz apart. How many times does the phase turn
-   over one 480-symbol segment at 2400 symbols per second, and what does that do to a
-   plain correlation against the known preamble?
-3. Before it can decode the body, what does the receiver have to learn from the
-   preamble besides where it is?
+1. A 2 ms echo arrives how many symbols after the direct path? In Step 4's comb of
+   matches, what would a second path of equal strength add?
+2. `strongest_group()` picks the group the most segments support. If the echo is the
+   stronger path for most of the preamble, which group wins, and where does the
+   equalizer start?
+3. A path can fade out through the segments the scan sees first and form no group of its
+   own. How else could the receiver find it?

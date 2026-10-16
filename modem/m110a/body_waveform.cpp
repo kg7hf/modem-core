@@ -150,6 +150,27 @@ static Status encode_coded_bits(BitSpan information_bits, const BodyBlockPlan& p
     return Status::success();
 }
 
+BodyModeRecognition recognize_body_designators(std::uint8_t d1, std::uint8_t d2, bool long_preamble) noexcept
+{
+    if ((d1 == 5U && (d2 == 6U || d2 == 7U)) || (d1 == 7U && d2 == 7U))
+    {
+        return {BodyDesignatorState::recognized_unsupported, {}};
+    }
+
+    for (const auto& row : designator_rows)
+    {
+        const auto expected = long_preamble ? row.long_code : row.short_code;
+
+        if (expected.d1 == d1 && expected.d2 == d2)
+        {
+            const auto interleave = row.rate == DataRate::bps4800 ? BodyInterleave::zero : long_preamble ? BodyInterleave::long_block : BodyInterleave::short_block;
+            return {BodyDesignatorState::supported, {row.rate, interleave}};
+        }
+    }
+
+    return {BodyDesignatorState::invalid, {}};
+}
+
 // body_block_plan, body_designators, find_designator_row, and the preamble-symbol
 // counts are constexpr in body_waveform.hpp so the whole geometry table folds at
 // compile time (see body_scratch_max). The rate notes: 150 (x4) and 300 (x2) are the

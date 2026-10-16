@@ -7,6 +7,7 @@
 #include "modem/common/types.hpp"
 #include "modem/m110a/body_waveform.hpp"
 
+#include <algorithm>
 #include <array>
 #include <complex>
 #include <cstddef>
@@ -18,8 +19,9 @@
 // =============================================================================
 // The streaming front end: 1800 Hz mix, RRC matched filter, fractional timing,
 // block-split invariant. Emits BodyFrontendSymbol {early, on_time} T/2 pairs.
-// Explained in the article series, Part 3 (the audio front end); its unit tests
-// are tests/front_end_tests.cpp.
+// Explained in the article series, Part 3 (the audio front end), with the phase
+// search and the rate integrator in Part 4 (acquisition); its unit tests are
+// tests/front_end_tests.cpp and tests/acquisition_tests.cpp.
 // Teaching walkthrough: modem/m110a/audio-front-end-explainer.md
 // =============================================================================
 
@@ -46,6 +48,20 @@ struct BodyFrontendSymbol
 {
     return std::real((late - early) * std::conj(on_time));
 }
+
+// What the type-2 rate integrator does with each symbol's timing error
+// (set_timing_rate_mode). held: it is zero, and the loop is the type-1 loop. tracking: it
+// integrates, learning the clock's rate and carrying it. frozen: it stands at the rate it
+// has (freeze_timing_rate; a test's oracle, a loop that knows the clock). The receiver holds
+// it while it searches, tracks from the first preamble candidate, and once the clock has
+// had time to be learned either retires it (held, when the rate it found is one the
+// proportional loop carries alone) or keeps it tracking to the end of the burst.
+enum class TimingRateMode : std::uint8_t
+{
+    held,
+    tracking,
+    frozen,
+};
 
 // Streaming receive front end: complex mix at the 1800 Hz carrier,
 // root-raised-cosine matched filter, and early-late fractional timing,
@@ -85,6 +101,117 @@ public:
 
     [[nodiscard]] std::uint32_t clipped_samples() const noexcept { return mClippedSamples; }
 
+    // The type-2 rate integrator's default gain, a fortieth of the proportional gain's 0.08:
+    // gentler than the carrier tracker's ratio, because the timing error carries a fading
+    // bias the carrier's phase error does not.
+    static constexpr float default_timing_integral_gain = 0.0002F;
+
+    // Adds a rate integrator to the timing loop (off by default), the same structure as the
+    // carrier tracker's second loop. The type-1 loop is proportional only, so under a clock
+    // offset it settles a standing distance off the symbol peaks, the drift divided by its
+    // gain, and at 1000 ppm the distance it would need is past the peak of the detector's
+    // output, and it slips. The integrator carries the clock's rate, so the proportional term
+    // has only the jitter left. integral_gain 0 (or enabled false) leaves the loop the type-1
+    // loop. The setting survives reset(); the integrator itself only integrates while
+    // set_timing_rate_mode() has it tracking. Call after initialize().
+    void configure_timing_tracker(bool enabled, float integral_gain = default_timing_integral_gain) noexcept;
+
+    // What the integrator does from the next process() call; nothing, unless the tracker is
+    // configured. held zeroes it, and the loop is the type-1 loop. tracking integrates, from
+    // zero after held. frozen keeps the rate as it stands. The receiver holds it while it
+    // searches (on a line with no signal the timing error is not zero on average, and an
+    // integrator left running walks to rates the next preamble cannot pull in from). Every
+    // change of mode starts the running mean again. reset() holds it.
+    void set_timing_rate_mode(TimingRateMode mode) noexcept
+    {
+        if (mode == TimingRateMode::held)
+        {
+            mTimingRate = 0.0F;
+        }
+
+        mTimingRateMode = mode;
+        mark_timing_rate_mean();
+    }
+
+    // The mean of the integrator's rate over the symbols produced since the last mark. Through
+    // fading the momentary rate swings as the strongest path moves, while its mean over tens
+    // of seconds stays near the clock's offset, so this, not timing_rate(), is what the
+    // receiver judges. 0 with no symbol since the mark.
+    void mark_timing_rate_mean() noexcept
+    {
+        mTimingRateSum = 0;
+        mTimingRateSamples = 0U;
+    }
+
+    [[nodiscard]] float timing_rate_mean() const noexcept;
+
+    // Freezes the integrator at a given rate, in samples per symbol beyond the nominal 20 (a
+    // test's oracle: a loop that knows the clock; the receiver never freezes), clamped to
+    // the step limit like the integrator. With the tracker off only the mode changes, so the
+    // loop stays the type-1 loop.
+    void freeze_timing_rate(float rate) noexcept
+    {
+        if (mTimingIntegralGain > 0.0F)
+        {
+            mTimingRate = std::clamp(rate, -mMaximumTimingStep, mMaximumTimingStep);
+        }
+
+        mTimingRateMode = TimingRateMode::frozen;
+    }
+
+    [[nodiscard]] TimingRateMode timing_rate_mode() const noexcept { return mTimingRateMode; }
+
+    // The phase search, made with the three points the loop already reads. Over every
+    // phase_search_window_symbols symbols it sums the on-time energy and the energy half a
+    // symbol off it (early and late). A loop on the peaks reads more energy on time (half a
+    // symbol off, where two neighbouring pulses overlap, a stream of raised-cosine pulses at
+    // rolloff 0.35 reads about 0.83 of its on-time energy); one
+    // hung half a symbol off the peaks reads more off time, so when the off-time sum exceeds
+    // the on-time sum by phase_search_margin in two windows running, the loop is moved half a
+    // symbol forward, onto the peaks, and pulls in from there within a few hundred symbols
+    // instead of sliding off the detector's unstable zero for up to 2000. (Two windows, so
+    // noise alone, whose sums differ by a few per cent, never moves a locked loop.) The same
+    // comparison sets the gain: a window whose off-time energy came within
+    // phase_search_fast_gain_ratio of the on-time energy (the loop more than about a sixth of a
+    // symbol off the peaks, where the error is small and the pull-in slow) runs the next
+    // window at phase_search_loop_gain, three times the tracking gain; any other window runs
+    // at the tracking gain, so a loop already on the peaks is not jittered. The receiver turns
+    // the search on while it looks for and acquires a preamble, and off once a burst is
+    // committed, so a locked body is never moved. Keyed to the symbol count, so the output
+    // stays the same however the audio is cut into blocks. Off by default and after reset().
+    static constexpr std::uint32_t phase_search_window_symbols = 120U;
+    static constexpr float phase_search_margin = 0.06F;
+    static constexpr float phase_search_loop_gain = 0.24F;
+    static constexpr float phase_search_fast_gain_ratio = 0.92F;
+
+    void set_phase_search(bool enabled) noexcept
+    {
+        if (enabled != mPhaseSearch)
+        {
+            mPhaseSearch = enabled;
+            mPhaseOnEnergy = 0.0F;
+            mPhaseOffEnergy = 0.0F;
+            mPhaseWindowSymbols = 0U;
+            mPhaseWindowsOff = 0U;
+            mPhaseFastGain = false;
+        }
+    }
+
+    [[nodiscard]] bool phase_search() const noexcept { return mPhaseSearch; }
+
+    // How many times the phase search has moved the loop since initialize().
+    [[nodiscard]] std::uint32_t phase_search_moves() const noexcept { return mPhaseSearchMoves; }
+
+    // The integrator's rate, samples per symbol beyond 20 (zero while held or off).
+    [[nodiscard]] float timing_rate() const noexcept { return mTimingRate; }
+
+    // Where the loop will read its next on-time sample: the stream sample (counted from the
+    // first sample given to process()) and the fraction of a sample past it. Together they
+    // are the timing position of symbol symbols_produced(), so a test can measure the loop
+    // against the transmitter's symbol grid directly.
+    [[nodiscard]] std::uint64_t timing_position_sample() const noexcept { return mPositionSample; }
+    [[nodiscard]] float timing_position_fraction() const noexcept { return mPositionFraction; }
+
 private:
     // The deepest read of one produced symbol is the early interpolation
     // point's oldest filter tap: position - half symbol - (taps - 1). The
@@ -112,6 +239,26 @@ private:
     float mMaximumTimingStep{};
     std::uint32_t mClippedSamples{};
     std::size_t mCarrierIndex{}; // sample number mod body_carrier_period_samples
+    // The type-2 rate integrator (configure_timing_tracker): its gain (0, the type-1 loop),
+    // its rate, what it does now (set_timing_rate_mode), and its rate summed since the last
+    // mark (mark_timing_rate_mean), in fixed point (rate x 2^20 per symbol) so a window of
+    // 10^5 symbols loses nothing to float rounding.
+    float mTimingIntegralGain{};
+    float mTimingRate{};
+    static constexpr float timing_rate_mean_scale = 1048576.0F;
+    std::int64_t mTimingRateSum{};
+    std::uint32_t mTimingRateSamples{};
+    TimingRateMode mTimingRateMode{TimingRateMode::held};
+    // The phase search (set_phase_search): the window's on-time and off-time energy sums, the
+    // symbols in the window so far, the windows running that read more energy off time, the
+    // fast gain for the next window, and the moves made.
+    bool mPhaseSearch{};
+    float mPhaseOnEnergy{};
+    float mPhaseOffEnergy{};
+    std::uint32_t mPhaseWindowSymbols{};
+    std::uint32_t mPhaseWindowsOff{};
+    bool mPhaseFastGain{};
+    std::uint32_t mPhaseSearchMoves{};
     bool mInitialized{};
 };
 
