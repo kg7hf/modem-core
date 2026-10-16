@@ -4,7 +4,7 @@
 
 A real, standards-compliant **MIL-STD-188-110A/B serial-tone HF modem** written in
 modern C++ (C++23), small enough to cross-compile onto a microcontroller. This
-repository is the **transmit side** and the first stage of the **receiver**, published
+repository is the **transmit side** and the first stages of the **receiver**, published
 as the companion code to the *Signal Path* article series, "Building a MIL-STD-188-110
 HF Modem in Modern C++."
 
@@ -27,15 +27,20 @@ an 1800 Hz, 2400 symbol/second passband signal:
 - **Modulation** (`m110a/body_waveform`, `common/dsp/timing_recovery`): the
   square-root raised-cosine pulse shaping and the 1800 Hz up-conversion.
 
-And the first stage of the receiver:
+And the first stages of the receiver:
 
 - **The audio front end** (`m110a/body_audio_stream_frontend`): mixes the audio down
   from 1800 Hz, runs the root-raised-cosine matched filter, and finds and tracks each
-  symbol's sampling instant, in audio blocks of any size.
+  symbol's sampling instant, in audio blocks of any size, with a phase search that frees a
+  loop hung between the peaks and a rate integrator that learns the clock offset.
+- **Acquisition** (`m110a/synchronization`): finds a burst in noise by its preamble,
+  measures the carrier offset, reads the mode and the countdown, and works out where the
+  data begins.
 - **Carrier tracking** (`common/dsp/timing_recovery`): the second-order loop that
   removes a carrier phase and frequency offset.
 - **The test bench** (`tests/`): Catch2 unit tests that run the real transmitter's
-  signals through the front end, each one small enough to step through.
+  signals through the receive stages, each one small enough to step through, and the
+  runner, which runs every stage so far end to end on your own message or a WAV file.
 
 The main stages have a detailed `*-explainer.md` next to their source; [docs/](docs/)
 lists them.
@@ -57,18 +62,19 @@ cd modem-core
 cmake -B build
 cmake --build build
 ./build/tx_demo "Hi"      # prints the walkthrough values, writes tx_out.wav
-ctest --test-dir build    # the golden tests and the front end's unit tests
+ctest --test-dir build    # the golden tests and the unit tests
 ./build/transmit_chain_tests "[walkthrough]" --order decl   # every number in Part 2
 ./build/front_end_demo                                      # Part 3, step by step
+./build/acquisition_demo                                    # Part 4, step by step
+./build/runner "Hi" --snr 10 --carrier 37                   # every stage so far, on your message
 ```
 
 In a clone made without `--recurse-submodules`, run `git submodule update --init`
 once. To build only the modem and `tx_demo`, configure with `-DMODEM_BUILD_TESTS=OFF`.
 
 Prefer an editor? Open the folder in VS Code: the CMake presets, build and run tasks,
-and debug configurations for `tx_demo`, `front_end_demo` and the transmit-chain tests are
-included, and
-the Testing panel lists every unit test to run or debug (see
+and debug configurations for `tx_demo`, `front_end_demo`, `acquisition_demo`, the runner and
+the transmit-chain tests are included, and the Testing panel lists every unit test to run or debug (see
 [CONTRIBUTING.md](CONTRIBUTING.md#vs-code)).
 
 `tx_demo` walks the message through the 600 bps long-interleave mode ("600L"),
@@ -78,7 +84,7 @@ renders the whole burst to a 48 kHz WAV you can listen to.
 ## Quality
 
 CI builds on GCC and Clang (warnings-as-errors), runs golden tests that check every
-transmitted symbol and the start of the waveform and the receive front end's unit
+transmitted symbol and the start of the waveform and the receiver's unit
 tests, and checks formatting (clang-format), the C++ Core Guidelines (clang-tidy), cyclomatic
 complexity (lizard), coverage (gcov), and bounded stack usage (`-fstack-usage`).
 Each gate backs a claim the articles make. See [CONTRIBUTING.md](CONTRIBUTING.md)
@@ -86,12 +92,12 @@ to run any of them locally.
 
 ## What's coming
 
-The receiver is the hard half, and it is its own series; the audio front end is its
-first stage. You will find the rest of the receiver **declared** in the headers here
-(the Viterbi decoder, the soft demapper, the block decoder) with their design notes
-intact, but not yet implemented; they arrive with the receiver articles, which cover
-acquisition, the equalizer, and the burst decoder. This repository grows with the
-series.
+The receiver is the hard half, and it is its own series; the audio front end and
+acquisition are its first stages. You will find the rest of the receiver **declared** in
+the headers here (the Viterbi decoder, the soft demapper, the block decoder) with their
+design notes intact, but not yet implemented; they arrive with the receiver articles,
+which cover the earliest-path anchor, the equalizer, and the burst decoder. This
+repository grows with the series, and so does the runner: each article adds its stage.
 
 ## License
 

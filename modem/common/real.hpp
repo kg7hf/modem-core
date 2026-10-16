@@ -29,12 +29,11 @@ using Real = float;
 // reason that outlives the float/double question: it is the SEAM for a future
 // fixed-point Real. See the note below before deleting it.
 //
-// For the float case the layer earns little on its own: since C++11 the <cmath>
-// overloads already resolve std::sqrt(float) -> the float overload (== sqrtf, no
-// promotion), so std::sqrt(Real) would be correct today. real_ops<float> just
-// binds each call to its EXPLICIT single-precision twin (sqrtf/sinf/...) so the
-// single-precision intent is stated in one place and cannot drift, and -Wdouble-
-// promotion stays the backstop. (The complex helpers - std::polar / abs / arg /
+// For float, the standard <cmath> overloads select float arguments and results,
+// so each wrapper calls the ordinary overloaded spelling (std::sqrt, std::sin, ...).
+// The suffixed C names are not guaranteed in namespace std. The -Wdouble-promotion
+// build warning remains the backstop against accidentally selecting a double overload.
+// (The complex helpers - std::polar / abs / arg /
 // conj / norm - are already templates on the value type and parameterize for free,
 // so only the scalar-real transcendentals live here.)
 //
@@ -62,22 +61,22 @@ template <class T> struct real_ops;
 
 template <> struct real_ops<float>
 {
-    [[nodiscard]] static float sqrt(float x) noexcept { return std::sqrtf(x); }
-    [[nodiscard]] static float sin(float x) noexcept { return std::sinf(x); }
-    [[nodiscard]] static float cos(float x) noexcept { return std::cosf(x); }
-    [[nodiscard]] static float atan2(float y, float x) noexcept { return std::atan2f(y, x); }
-    [[nodiscard]] static float fabs(float x) noexcept { return std::fabsf(x); }
-    [[nodiscard]] static float exp(float x) noexcept { return std::expf(x); }
-    [[nodiscard]] static float log(float x) noexcept { return std::logf(x); }
-    [[nodiscard]] static float log10(float x) noexcept { return std::log10f(x); }
-    [[nodiscard]] static float pow(float base, float exponent) noexcept { return std::powf(base, exponent); }
-    [[nodiscard]] static float hypot(float x, float y) noexcept { return std::hypotf(x, y); }
-    [[nodiscard]] static float floor(float x) noexcept { return std::floorf(x); }
-    [[nodiscard]] static float ceil(float x) noexcept { return std::ceilf(x); }
-    [[nodiscard]] static float round(float x) noexcept { return std::roundf(x); }
-    [[nodiscard]] static float fmin(float a, float b) noexcept { return std::fminf(a, b); }
-    [[nodiscard]] static float fmax(float a, float b) noexcept { return std::fmaxf(a, b); }
-    [[nodiscard]] static float fmod(float a, float b) noexcept { return std::fmodf(a, b); }
+    [[nodiscard]] static float sqrt(float x) noexcept { return std::sqrt(x); }
+    [[nodiscard]] static float sin(float x) noexcept { return std::sin(x); }
+    [[nodiscard]] static float cos(float x) noexcept { return std::cos(x); }
+    [[nodiscard]] static float atan2(float y, float x) noexcept { return std::atan2(y, x); }
+    [[nodiscard]] static float fabs(float x) noexcept { return std::fabs(x); }
+    [[nodiscard]] static float exp(float x) noexcept { return std::exp(x); }
+    [[nodiscard]] static float log(float x) noexcept { return std::log(x); }
+    [[nodiscard]] static float log10(float x) noexcept { return std::log10(x); }
+    [[nodiscard]] static float pow(float base, float exponent) noexcept { return std::pow(base, exponent); }
+    [[nodiscard]] static float hypot(float x, float y) noexcept { return std::hypot(x, y); }
+    [[nodiscard]] static float floor(float x) noexcept { return std::floor(x); }
+    [[nodiscard]] static float ceil(float x) noexcept { return std::ceil(x); }
+    [[nodiscard]] static float round(float x) noexcept { return std::round(x); }
+    [[nodiscard]] static float fmin(float a, float b) noexcept { return std::fmin(a, b); }
+    [[nodiscard]] static float fmax(float a, float b) noexcept { return std::fmax(a, b); }
+    [[nodiscard]] static float fmod(float a, float b) noexcept { return std::fmod(a, b); }
 };
 
 // The modem's scalar-real math entry point: rmath::sqrt(x), rmath::sin(x), ...

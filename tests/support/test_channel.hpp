@@ -31,15 +31,19 @@ struct FadingSpec
 
 struct ChannelSpec
 {
-    std::optional<float> snr_db{}; // white noise: signal over noise in a 3 kHz band
-    std::optional<float> cw_db{};  // a CW tone: its power relative to the signal
-    std::uint32_t cw_hz{1800U};    // whole hertz, so the tone is exact
+    std::optional<float> snr_db{};    // white noise: signal over noise in a 3 kHz band
+    std::optional<float> cw_db{};     // a CW tone: its power relative to the signal
+    std::uint32_t cw_hz{1800U};       // whole hertz, so the tone is exact
+    std::optional<float> clock_ppm{}; // transmit sample-clock offset
     std::optional<FadingSpec> fading{};
+    std::optional<std::int32_t> carrier_offset_hz{}; // the whole signal moved in frequency, whole hertz
     std::uint64_t seed{1U};
 };
 
 // Applies the channel to the audio in place, in the order a real link does: the
-// path, interference, then noise at the receiver.
+// transmitter's clock, the path, the two radios' tuning (the carrier offset),
+// interference, then noise at the receiver. A clock offset changes the length of the
+// audio.
 [[nodiscard]] modem::common::Status apply_channel(std::vector<float>& audio, const ChannelSpec& spec);
 
 // The RMS of the non-silent samples: the signal level the SNR and the CW level are set against.

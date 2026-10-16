@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Paul R. Decker (KG7HF)
 
 cmake_minimum_required(VERSION 3.25)
-project(modem_core_tx LANGUAGES CXX)
+project(modem_core LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,7 +22,7 @@ if(MODEM_CLANG_TIDY)
     set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY}")
 endif()
 
-add_library(modem_tx STATIC
+add_library(modem_core STATIC
     modem/common/status.cpp
     modem/common/types.cpp
     modem/common/dsp/timing_recovery.cpp
@@ -32,25 +32,26 @@ add_library(modem_tx STATIC
     modem/m110a/body_waveform.cpp
     modem/m110a/body_audio_stream_frontend.cpp
     modem/m110a/scrambler.cpp
+    modem/m110a/synchronization.cpp
     modem/m110a/demapper.cpp
     modem/m110a/interleaver.cpp
 )
-target_include_directories(modem_tx PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(modem_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # The runtime rules from "The rules I build by" travel with the library: no exceptions
 # and no RTTI. They are PUBLIC, so tx_demo and any other consumer build the same way.
 if(MSVC)
-    target_compile_options(modem_tx PUBLIC $<$<COMPILE_LANGUAGE:CXX>:/GR-> $<$<COMPILE_LANGUAGE:CXX>:/EHs-> $<$<COMPILE_LANGUAGE:CXX>:/EHc->)
-    target_compile_definitions(modem_tx PUBLIC $<$<COMPILE_LANGUAGE:CXX>:_HAS_EXCEPTIONS=0>)
+    target_compile_options(modem_core PUBLIC $<$<COMPILE_LANGUAGE:CXX>:/GR-> $<$<COMPILE_LANGUAGE:CXX>:/EHs-> $<$<COMPILE_LANGUAGE:CXX>:/EHc->)
+    target_compile_definitions(modem_core PUBLIC $<$<COMPILE_LANGUAGE:CXX>:_HAS_EXCEPTIONS=0>)
 else()
-    target_compile_options(modem_tx PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions> $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>)
+    target_compile_options(modem_core PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions> $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>)
     # No fused multiply-add: a*b+c rounds twice on every target, so the float results do not
     # depend on the compiler or the optimization level (Part 3, "The compiler changed the math").
-    target_compile_options(modem_tx PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-ffp-contract=off>)
+    target_compile_options(modem_core PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-ffp-contract=off>)
 endif()
 
 add_executable(tx_demo tests/tx_demo.cpp)
-target_link_libraries(tx_demo PRIVATE modem_tx)
+target_link_libraries(tx_demo PRIVATE modem_core)
 
 # MinGW on Windows: put the compiler's runtime DLLs next to each program. Windows loads a
 # DLL from the program's own folder before searching the PATH, so another toolchain's older
@@ -94,10 +95,13 @@ endif()
 add_library(modem_test_bench STATIC
     tests/support/front_end_harness.cpp
     tests/support/impairments.cpp
+    tests/support/receive_chain.cpp
     tests/support/test_channel.cpp
     tests/support/test_waveform.cpp
+    tests/support/wav_file.cpp
+    tests/walkthrough/acquisition_steps.cpp
     tests/walkthrough/front_end_steps.cpp)
-target_link_libraries(modem_test_bench PUBLIC modem_tx)
+target_link_libraries(modem_test_bench PUBLIC modem_core)
 if(NOT MODEM_PRINT_LINKS)
     target_link_libraries(modem_test_bench PUBLIC stdc++exp)
 endif()
@@ -106,6 +110,17 @@ endif()
 add_executable(front_end_demo tests/front_end_demo.cpp)
 target_link_libraries(front_end_demo PRIVATE modem_test_bench)
 modem_copy_runtime(front_end_demo)
+
+# Part 4's companion program.
+add_executable(acquisition_demo tests/acquisition_demo.cpp)
+target_link_libraries(acquisition_demo PRIVATE modem_test_bench)
+modem_copy_runtime(acquisition_demo)
+
+# The runner: every stage published so far, end to end, on your own message or a WAV file.
+# Each article adds its stage.
+add_executable(runner tests/runner.cpp)
+target_link_libraries(runner PRIVATE modem_test_bench)
+modem_copy_runtime(runner)
 
 # The Catch2 tests. Catch2 is an external test tool, a git submodule in external/catch2
 # fixed to one release (v3.16.0) by its commit. It builds only for the tests, never into
@@ -131,9 +146,17 @@ if(MODEM_BUILD_TESTS)
     # Before catch_discover_tests (below) runs the program to list its tests.
     modem_copy_runtime(front_end_tests)
 
+    add_executable(acquisition_tests tests/acquisition_tests.cpp)
+    target_link_libraries(acquisition_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
+    modem_copy_runtime(acquisition_tests)
+
+    add_executable(runner_tests tests/runner_tests.cpp)
+    target_link_libraries(runner_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
+    modem_copy_runtime(runner_tests)
+
     # Part 2's transmit chain, on the same bench.
     add_executable(transmit_chain_tests tests/transmit_chain_tests.cpp)
-    target_link_libraries(transmit_chain_tests PRIVATE modem_tx Catch2::Catch2WithMain)
+    target_link_libraries(transmit_chain_tests PRIVATE modem_core Catch2::Catch2WithMain)
     if(NOT MODEM_PRINT_LINKS)
         target_link_libraries(transmit_chain_tests PRIVATE stdc++exp)
     endif()
@@ -142,9 +165,9 @@ endif()
 
 # --- Apply the warning/tooling flags to our own targets (GCC/Clang). ---
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    set(MODEM_OWN_TARGETS modem_tx tx_demo modem_test_bench front_end_demo)
+    set(MODEM_OWN_TARGETS modem_core tx_demo modem_test_bench front_end_demo acquisition_demo runner)
     if(MODEM_BUILD_TESTS)
-        list(APPEND MODEM_OWN_TARGETS front_end_tests transmit_chain_tests)
+        list(APPEND MODEM_OWN_TARGETS front_end_tests acquisition_tests runner_tests transmit_chain_tests)
     endif()
     foreach(target ${MODEM_OWN_TARGETS})
         target_compile_options(${target} PRIVATE -Wall -Wextra)
@@ -155,9 +178,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             target_compile_options(${target} PRIVATE --coverage -O0 -g)
             target_link_options(${target} PRIVATE --coverage)
         endif()
-        # The stack bound is a claim about the modem and tx_demo; the bench and its
+        # The stack bound is a claim about the modem library and tx_demo; the bench and its
         # programs may hold a whole front end on the stack, so they are not part of it.
-        if(MODEM_STACK_USAGE AND (target STREQUAL "modem_tx" OR target STREQUAL "tx_demo"))
+        if(MODEM_STACK_USAGE AND (target STREQUAL "modem_core" OR target STREQUAL "tx_demo"))
             target_compile_options(${target} PRIVATE -fstack-usage)
         endif()
     endforeach()
@@ -179,6 +202,9 @@ set_tests_properties(tx_golden_symbols PROPERTIES
     PASS_REGULAR_EXPRESSION "23040 transmitted tribits, FNV-1a 6097e9da9fbb6255")
 # Part 3's demo runs every walkthrough step and exits non-zero if one cannot.
 add_test(NAME front_end_demo COMMAND front_end_demo)
+# Part 4's demo, the same way, and the runner on the walkthrough's line.
+add_test(NAME acquisition_demo COMMAND acquisition_demo)
+add_test(NAME runner COMMAND runner "Hi" --snr 10 --carrier 37)
 
 # Every Catch2 test case is its own CTest test, so each shows up in VS Code's Testing
 # panel. Hidden cases run only when asked for: ctest -L long, or ctest -L report.
@@ -186,5 +212,7 @@ if(MODEM_BUILD_TESTS)
     catch_discover_tests(front_end_tests TEST_PREFIX "front_end: ")
     catch_discover_tests(front_end_tests TEST_SPEC "[long]" TEST_PREFIX "long: " PROPERTIES LABELS long)
     catch_discover_tests(front_end_tests TEST_SPEC "[report]" TEST_PREFIX "report: " PROPERTIES LABELS report)
+    catch_discover_tests(acquisition_tests TEST_PREFIX "acquisition: ")
+    catch_discover_tests(runner_tests TEST_PREFIX "runner: ")
     catch_discover_tests(transmit_chain_tests TEST_PREFIX "transmit: ")
 endif()

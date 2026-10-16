@@ -15,6 +15,9 @@ This note explains the receiver's first stage:
 The carrier itself is the 80-entry `body_carrier_table` in `modem/m110a/body_waveform.hpp`,
 the same table the transmitter uses. The unit tests in `tests/front_end_tests.cpp` check
 each piece, and the article series explains the design in Part 3, "The audio front end".
+Part 4, "Acquisition: finding the burst", adds two pieces a receiver turns on around
+acquisition, both off by default: the phase search and the rate integrator (sections 6 and
+9).
 
 ---
 
@@ -33,6 +36,13 @@ earlier. It does four things, in order:
    either side of the current guess.
 4. **Keep it there.** A proportional loop moves the guess by a fraction of what the
    detector asks for, never more than a fifth of a sample per symbol.
+
+Two additions from Part 4 help it stay there, both off by default. The **phase search**
+watches for a loop hung half a symbol off the peaks, where the detector's error is also
+zero, and moves it half a symbol forward. The **rate integrator** adds a second, integral
+path to the loop that learns the clock offset between the two sound cards, so the
+proportional path has only the jitter left. A receiver runs the search while it looks for a
+preamble, and starts the integrator at the first preamble candidate.
 
 All of its state lives in the object between calls, so the symbols are identical, bit for
 bit, however the audio is split into blocks. The carrier tracker comes after it: given a
@@ -62,16 +72,19 @@ turning it the same way, they learn the drift and start turning ahead of it.
      │
      ▼  BodyAudioStreamFrontend::process()
   ┌───────────────────────────────────────────────────────────────────────┐
-  │ mix:     2 · x[n] · conj(body_carrier_table[n mod 80])  ──► ring (1024) │
+  │ mix:     2 · x[n] · conj(body_carrier_table[n mod 80]) ─► ring (1024) │
   │ filter:  161-tap RRC, rolloff 0.35, evaluated only where it is read   │
   │ timing:  early (-10), on time, late (+10), linear interpolation       │
   │          e = Re{(late - early) · conj(on_time)} / energy              │
   │          position += 20 + clamp(0.08 · e, ±0.2)                       │
   │          (position = whole samples (uint64) + fraction (float))       │
+  │ Part 4:  rate integrator  r ← r + 0.0002 · e  (while tracking)        │
+  │          position += 20 + clamp(0.08 · e + r, ±0.2)                   │
+  │          phase search: a loop hung between peaks moves +10            │
   └───────────────────────────────────────────────────────────────────────┘
      │ BodyFrontendSymbol {early, on_time}, 2400 per second
      ▼
-  acquisition: find the preamble, the mode, the start of the body   (next stage)
+  acquisition: find the preamble, the mode, the start of the body   (Part 4)
      ▼
   equalizer and CarrierTracker: decisions turn each symbol upright  (later stages)
 ```
@@ -91,6 +104,7 @@ turning it the same way, they learn the drift and start turning ahead of it.
 | `BodyAudioStreamFrontend` | The filter taps (161 floats), the baseband ring (1024 complex samples), the count of samples written, the timing position (a 64-bit whole-sample count plus a float fraction), the loop gain and step limit, the carrier index, and a clip counter. About 8.6 KiB of state, all inside the object; no heap. |
 | `body_carrier_table` | 80 phasors; entry n is exp(j·2π·3n/80), the carrier at sample n. Written as hex-float constants so every compiler reads back the same bits; the quadrant entries (0, 20, 40, 60) are exact. |
 | `CarrierTracker` | The proportional and integral gains, the frequency limit, and the state: a phase in radians and a frequency in radians per symbol. |
+| `TimingRateMode` | What the rate integrator does: `held` (zero; the loop is Part 3's), `tracking` (it learns), or `frozen` (it stands at a given rate; a test's oracle). |
 
 The constants, with the reason for each:
 
@@ -100,6 +114,10 @@ The constants, with the reason for each:
 | `matched_filter_rolloff` | 0.35 | The default receive rolloff; `initialize` takes another. The transmitter shapes with 0.25. |
 | `default_timing_loop_gain` | 0.08 | How much of each normalized timing error the loop acts on. |
 | `default_maximum_timing_step` | 0.20 | The most the loop moves in one symbol, in samples. |
+| `default_timing_integral_gain` | 0.0002 | The rate integrator's gain, a fortieth of the proportional gain: gentler than the carrier tracker's ratio, because the timing error carries a fading bias the carrier's phase error does not. |
+| `phase_search_window_symbols` | 120 | The phase search compares the energy on the loop's points with the energy half a symbol off them over this many symbols. |
+| `phase_search_margin` | 0.06 | The off-time energy must beat the on-time energy by 6 percent, two windows running, to move the loop; noise alone differs by a few percent. |
+| `phase_search_loop_gain` | 0.24 | Three times the tracking gain, for the window after one whose off-time energy came within `phase_search_fast_gain_ratio` (0.92) of the on-time energy. |
 | `maximum_block_samples` | 480 | The largest block one `process` call takes (10 ms). |
 | `maximum_block_symbols` | 26 | 480 / 20, plus two: timing corrections can slide an extra symbol into a block. |
 | `raw_ring_size` | 1024 | The deepest read is 661 samples back: 160 (filter) + 10 (half a symbol) + 11 (how far production can trail) + 480 (a whole block). A `static_assert` checks it. |
@@ -121,7 +139,8 @@ The constants, with the reason for each:
 ### `BodyAudioStreamFrontend::reset()`
 - **50K:** Start over, ready for a new stream.
 - **Detailed:** Clears the ring, the sample and symbol counts, the clip counter and the
-  carrier index, and puts the first on-time point at sample 170.
+  carrier index, and puts the first on-time point at sample 170. It holds the rate
+  integrator (its gain stays) and turns the phase search off.
 - **5th-grade:** Wipe the slate and put your finger back at the start.
 
 ### `BodyAudioStreamFrontend::process(captured, output, produced)`
@@ -136,6 +155,10 @@ The constants, with the reason for each:
   `{early, on_time}`; compute the early-late error, divide it by the energy of the three
   points (never by less than 1e-6), scale it by the gain, clamp it to the step limit; add
   20 plus that correction to the fraction, and move its whole part into the sample count.
+  With the rate integrator tracking, the normalized error also adds `Ki · e` to the rate,
+  and the correction is the gain's share plus the rate, clamped together. With the phase
+  search on, each symbol adds to the window's energy sums, and the window's end may move
+  the loop half a symbol or set the next window's gain (`set_phase_search`, below).
 - **5th-grade:** Take the whistle out of every sample as it comes in; whenever there is
   enough sound past the next beat, read the beat and decide whether to tap earlier or
   later.
@@ -157,6 +180,44 @@ The constants, with the reason for each:
   the loop works before the carrier is tracked.
 - **5th-grade:** Compare the sound just before and just after the beat; move toward the
   louder side.
+
+### `configure_timing_tracker(enabled, integral_gain)` / `set_timing_rate_mode(mode)` (Part 4)
+- **50K:** A second loop, for the clock.
+- **Detailed:** `configure_timing_tracker` sets the integrator's gain; 0, or `enabled`
+  false, leaves the loop Part 3's. `set_timing_rate_mode` says what it does from the next
+  `process` call: `held` zeroes it, `tracking` adds `Ki · e` to the rate every symbol, and
+  `frozen` keeps the rate as it stands. `freeze_timing_rate(rate)` freezes it at a given
+  rate, a test's oracle for a loop that knows the clock. Every change of mode starts the
+  running mean again.
+- **5th-grade:** If you keep having to tap a little later every beat, start tapping later
+  on your own, and keep the small nudges for the wobble.
+
+### `timing_rate()` / `mark_timing_rate_mean()` / `timing_rate_mean()` (Part 4)
+- **50K:** What the integrator has learned.
+- **Detailed:** `timing_rate()` is the rate now, in samples per symbol beyond 20. Through
+  fading it swings as the strongest path moves, so a receiver judges the mean instead:
+  `timing_rate_mean()` averages the rate over the symbols since the last mark, summed in
+  fixed point (rate × 2^20) so that 10^5 symbols lose nothing to float rounding. A
+  transmit clock c ppm fast shows as a rate of about -20 · c / 10^6.
+
+### `set_phase_search(enabled)` / `phase_search_moves()` (Part 4)
+- **50K:** Get unstuck.
+- **Detailed:** The detector's output is zero on the peaks and also half a symbol off
+  them, between two peaks, and a loop that starts there slides off slowly, for up to 2000
+  symbols. Over every 120 symbols the search sums the on-time energy and the mean of the
+  early and late energies. A raised-cosine pulse at rolloff 0.35 keeps 0.83 of its peak
+  energy half a symbol off, so a loop on the peaks reads more on time; when the off-time
+  sum beats the on-time sum by 6 percent two windows running, the loop moves half a symbol
+  (10 samples) forward. A window whose off-time energy came within 0.92 of the on-time
+  energy runs the next window at 0.24, three times the tracking gain. It counts symbols,
+  not blocks, so the output is the same however the audio is cut. `phase_search_moves()`
+  counts the moves.
+- **5th-grade:** If the off-beat sounds louder than the beat you tap, you are tapping
+  between beats: jump half a beat.
+
+### `timing_position_sample()` / `timing_position_fraction()`
+- Where the loop reads its next on-time sample: the stream sample and the fraction past
+  it. The test bench measures the loop against the transmitter's symbol grid with them.
 
 ### `CarrierTracker::configure` / `reset` / `restore` / `update` / `advance`
 - **50K:** A second-order, decision-directed carrier loop.
@@ -228,6 +289,13 @@ interpolate:    y(n + μ) = y[n] + μ · (y[n + 1] - y[n])        0 ≤ μ < 1
 timing error:   e = Re{ (L - E) · conj(O) }                    E, O, L at τ - 10, τ, τ + 10
 loop:           τ ← τ + 20 + clamp( g · e / (|E|² + |O|² + |L|²),  ±s )     g = 0.08, s = 0.2
 
+type 2:         eₙ = e / (|E|² + |O|² + |L|²)
+                r ← clamp( r + Ki · eₙ,  ±s )                  Ki = 0.0002, while tracking
+                τ ← τ + 20 + clamp( g · eₙ + r,  ±s )
+phase search:   over 120 symbols  P_on = Σ |O|²,  P_off = Σ (|E|² + |L|²) / 2
+                P_off > 1.06 · P_on two windows running  →  τ ← τ + 10
+                P_off > 0.92 · P_on  →  g = 0.24 for the next window
+
 carrier loop:   corrected = r · exp(-jθ)
                 e = arg( corrected · conj(decision) )
                 f ← clamp( f + Ki · e,  ±f_max )
@@ -244,7 +312,8 @@ carrier loop:   corrected = r · exp(-jθ)
 | The constellation points bend or smear | The input clips. | `clipped_samples()` counts samples at magnitude 0.999 or more. Lower the audio level. |
 | `invalid_argument` from `process` | A block of more than 480 samples, or an output too small for it. | Split the audio into blocks of at most 480; size the output by `maximum_block_symbols`. |
 | Symbols rotate slowly | The two radios' carriers differ; the front end does not remove that. | `CarrierTracker`, once decisions are available. Its limit is 120 Hz. |
-| Symbols sit off the peak under a clock offset | A proportional loop needs a standing error to make a standing correction. | At 100 ppm the loop sits 0.74 samples off the eye; at 1000 ppm (20 dB signal-to-noise) it loses lock. A loop with an integrator fixes it. |
+| Symbols sit off the peak under a clock offset | A proportional loop needs a standing error to make a standing correction. | At 100 ppm the loop sits 0.74 samples off the eye; at 1000 ppm (20 dB signal-to-noise) it loses lock. The rate integrator (`configure_timing_tracker`, Part 4) carries the clock's rate, and the loop sits back on the peaks. |
+| The loop takes up to 2000 symbols to pull in | It started half a symbol off the peaks, where the detector's error is also zero. | The phase search (`set_phase_search`, Part 4) moves it half a symbol. |
 | Errors in noise | Noise, not timing. | White noise at 10 dB signal-to-noise (in a 3 kHz band): about 5.5% of symbols wrong, rms phase error about 11.7 degrees. |
 | Errors with a tone on the carrier | Interference inside the band. | A CW tone 10 dB below the signal, at 20 dB signal-to-noise: 4.66% of symbols wrong. |
 | Most decisions wrong in fading | Echoes, which no front end removes. | Two-path Watterson fading (2 ms, 1 Hz, 20 dB): the front end alone gets 3489 of 19736 decisions right. That is the equalizer's job. |
@@ -261,6 +330,8 @@ carrier loop:   corrected = r · exp(-jθ)
 | On-time magnitude | Settles to a steady value once the loop has locked (about 2.4 on the test signal). The test bench calls the loop locked when a 200-symbol average reaches 99% of the settled value. |
 | On-time angle | Clusters at the eight phases (multiples of 45 degrees), turned by any carrier offset. On a clean signal each sample sits within a degree of its phase. |
 | Timing error | Averages to about zero once locked; a steady nonzero average means a clock offset. |
+| `timing_rate()`, `timing_rate_mean()` | The integrator's rate; its mean through a burst is the clock offset it learned. |
+| `phase_search_moves()` | How often the search moved the loop. On a locked loop it stays put. |
 | `CarrierTracker::frequency_radians_per_symbol()` | Times 2400 / 2π gives hertz. Sitting at the limit means the offset is out of range. |
 
 Healthy: the magnitude steady, the angles in eight tight clusters, the timing error
@@ -282,6 +353,8 @@ clip count climbing.
    article's steps in order and prints every number it quotes, and each step is one function
    there. `tests/front_end_tests.cpp` calls the same functions and checks what they return.
    Set a breakpoint in a step and step through it from either.
+6. Part 4's additions: `set_phase_search` and the integrator's branch in `process()`, then
+   Steps 11 to 14 in `tests/walkthrough/acquisition_steps.cpp`.
 
 ---
 
@@ -304,8 +377,15 @@ clip count climbing.
   receiver again.
 - **Keep the position as whole samples plus a fraction.** A `double` would also work on a
   host, but it is emulated in software on the Cortex-M33.
+- **Hold the integrator while searching.** On a line with no signal the timing error is
+  not zero on average, and an integrator left running walks to rates the next preamble
+  cannot pull in from.
+- **Never run the phase search on a committed burst.** A receiver turns it off once it
+  commits, so a locked body is never moved. The two windows and the 6 percent margin keep
+  noise from moving a locked loop while it is on.
 
 ---
 
 *Companion to the transmit-stage explainers in `modem/m110a/`. The carrier table it shares
-with the transmitter is walked through in `modem/m110a/body-waveform-and-scrambler-explainer.md`.*
+with the transmitter is walked through in `modem/m110a/body-waveform-and-scrambler-explainer.md`.
+The stage after it, acquisition, is in `modem/m110a/synchronization-and-acquisition-explainer.md`.*

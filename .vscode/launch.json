@@ -76,6 +76,88 @@
       "MIMode": "lldb"
     },
     {
+      "name": "acquisition_demo (gdb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "Build",
+      "program": "${command:cmake.buildDirectory}/acquisition_demo",
+      "windows": {
+        "program": "${command:cmake.buildDirectory}/acquisition_demo.exe"
+      },
+      "args": [],
+      "cwd": "${command:cmake.buildDirectory}",
+      "stopAtEntry": true,
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "acquisition_demo (lldb, macOS)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "Build",
+      "program": "${command:cmake.buildDirectory}/acquisition_demo",
+      "args": [],
+      "cwd": "${command:cmake.buildDirectory}",
+      "stopAtEntry": true,
+      "externalConsole": false,
+      "MIMode": "lldb"
+    },
+    {
+      "name": "runner (gdb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "Build",
+      "program": "${command:cmake.buildDirectory}/runner",
+      "windows": {
+        "program": "${command:cmake.buildDirectory}/runner.exe"
+      },
+      "args": [
+        "Hi",
+        "--snr",
+        "10",
+        "--carrier",
+        "37"
+      ],
+      "cwd": "${command:cmake.buildDirectory}",
+      "stopAtEntry": true,
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "runner (lldb, macOS)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "Build",
+      "program": "${command:cmake.buildDirectory}/runner",
+      "args": [
+        "Hi",
+        "--snr",
+        "10",
+        "--carrier",
+        "37"
+      ],
+      "cwd": "${command:cmake.buildDirectory}",
+      "stopAtEntry": true,
+      "externalConsole": false,
+      "MIMode": "lldb"
+    },
+    {
       "name": "transmit_chain_tests (gdb)",
       "type": "cppdbg",
       "request": "launch",
