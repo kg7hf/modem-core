@@ -6,11 +6,13 @@
 #include "modem/common/status.hpp"
 #include "modem/m110a/synchronization.hpp"
 #include "modem/m110a/transmitter.hpp"
+#include "tests/support/front_end_harness.hpp"
 #include "tests/support/test_channel.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 
 // =============================================================================
@@ -48,12 +50,22 @@ struct TransmitReport
 };
 
 // Where the bench measured the timing loop through the body, against the transmitter's
-// symbol grid: its mean distance from the symbol peaks, and how many symbols it slipped.
+// symbol grid. Each timing point names the stream symbol the loop was reading and the burst
+// symbol under it, and while the loop keeps step their difference stays the same. Every
+// change of it is a slip, counted one symbol at a time whichever way it goes, so a slip one
+// way and one back count two; the net is where the loop ended against where it started.
 struct GridReport
 {
-    double mean_offset_samples{};
-    std::int64_t slipped_symbols{};
+    double mean_offset_samples{}; // from the nearest peak; it means something only with no slip
+    std::size_t slips{};          // symbols slipped, either way
+    std::int64_t net_slip{};      // symbols gained (+) or lost (-), end to end
+
+    [[nodiscard]] bool in_step() const noexcept { return slips == 0U; }
 };
+
+// The loop through the body, from burst symbol body_start_symbol on, against the grid. Public
+// so a test can check the counting on a trace of its own.
+[[nodiscard]] GridReport summarize_grid(std::span<const GridOffset> offsets, std::size_t body_start_symbol);
 
 // Part 3: the front end exactly as Part 3 has it, the proportional loop and nothing else.
 struct FrontEndReport

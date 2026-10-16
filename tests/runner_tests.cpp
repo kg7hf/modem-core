@@ -154,12 +154,43 @@ TEST_CASE("At 1000 ppm Part 3's loop slips and the committed receiver learns the
     REQUIRE(front_end.grid.has_value());
     REQUIRE(acquisition.grid.has_value());
     // Part 3's proportional loop cannot make the standing error 1000 ppm needs, so it slips.
-    CHECK(front_end.grid->slipped_symbols != 0);
+    CHECK_FALSE(front_end.grid->in_step());
+    CHECK(front_end.grid->net_slip < 0); // a fast transmit clock: the loop steps over symbols
     // Committed at the first candidate, the search off and the integrator tracking: the clock
     // learned, the loop on the peaks, no slip.
     CHECK(std::fabs(acquisition.learned_clock_ppm - 1000.0) < 50.0);
     CHECK(std::fabs(acquisition.grid->mean_offset_samples) < 0.5);
-    CHECK(acquisition.grid->slipped_symbols == 0);
+    CHECK(acquisition.grid->in_step());
+}
+
+TEST_CASE("A slip one way and one back count as two slips and not as a loop in step", "[runner][grid]")
+{
+    // Stream symbol and the burst symbol under the loop at each timing point; their difference
+    // is 0 0 -1 -1 0: a symbol stepped over, then one read twice. The point before the body
+    // starts (at burst symbol 1000) is left out whatever it says.
+    const std::vector<GridOffset> trace{
+        {.symbol = 900U, .burst_symbol = 905.0},   {.symbol = 1000U, .burst_symbol = 1000.0}, {.symbol = 1024U, .burst_symbol = 1024.2},
+        {.symbol = 1048U, .burst_symbol = 1048.9}, {.symbol = 1072U, .burst_symbol = 1072.8}, {.symbol = 1096U, .burst_symbol = 1096.1},
+    };
+    const auto report = summarize_grid(trace, 1000U);
+    CHECK(report.slips == 2U);
+    CHECK(report.net_slip == 0);
+    CHECK_FALSE(report.in_step());
+
+    // Three symbols stepped over, one after another: three slips, three lost.
+    const std::vector<GridOffset> drifting{
+        {.symbol = 1000U, .burst_symbol = 1000.0},
+        {.symbol = 1024U, .burst_symbol = 1025.0},
+        {.symbol = 1048U, .burst_symbol = 1050.0},
+        {.symbol = 1072U, .burst_symbol = 1075.0},
+    };
+    const auto drifted = summarize_grid(drifting, 1000U);
+    CHECK(drifted.slips == 3U);
+    CHECK(drifted.net_slip == -3);
+
+    // No change at all: the only trace that is in step.
+    const std::vector<GridOffset> steady{{.symbol = 1000U, .burst_symbol = 1000.1}, {.symbol = 1024U, .burst_symbol = 1023.9}};
+    CHECK(summarize_grid(steady, 1000U).in_step());
 }
 
 TEST_CASE("A recording the runner saved gives the same burst when read back", "[runner][chain][wav]")

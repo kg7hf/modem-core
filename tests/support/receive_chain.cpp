@@ -150,32 +150,10 @@ Status run_front_end(FrontEndRunner& runner, std::span<const float> audio, const
     return status;
 }
 
-// The loop through the body, against the transmitter's grid: its mean distance from the
-// symbol peaks, and the symbols it gained or lost (the stream symbol it reads each burst
-// symbol at stays the same while it keeps step).
+// The loop through a generated burst's body, against the transmitter's grid.
 GridReport grid_report(const FrontEndRunner& runner, const BurstTruth& burst, float clock_ppm)
 {
-    const auto body_start = widen<double>(as_real(burst.preamble_symbols));
-    double sum{};
-    std::size_t count{};
-    std::optional<std::int64_t> first_lag{};
-    std::int64_t last_lag{};
-    for (const auto& point : grid_offsets(runner, burst, 0U, clock_ppm))
-    {
-        if (point.burst_symbol < body_start)
-        {
-            continue;
-        }
-        sum += point.offset_samples;
-        ++count;
-        const auto lag = narrow<std::int64_t>(point.symbol) - std::llround(point.burst_symbol);
-        if (!first_lag)
-        {
-            first_lag = lag;
-        }
-        last_lag = lag;
-    }
-    return {.mean_offset_samples = count == 0U ? 0.0 : sum / widen<double>(as_real(count)), .slipped_symbols = first_lag ? last_lag - *first_lag : 0};
+    return summarize_grid(grid_offsets(runner, burst, 0U, clock_ppm), burst.preamble_symbols);
 }
 
 // The stream sample half a symbol before the loop reads stream symbol `symbol`, from where
@@ -322,16 +300,55 @@ std::string channel_text(const ChainSpec& spec, std::size_t lead)
 
 void print_grid(const GridReport& grid)
 {
-    if (grid.slipped_symbols == 0)
+    if (grid.in_step())
     {
         std::println("           through the body, against the transmitter's grid: {:.2f} samples off the symbol peaks, in step with every symbol", grid.mean_offset_samples);
         return;
     }
-    // A loop that slips reads each symbol off a different peak, so its mean offset says nothing.
-    std::println("           through the body, against the transmitter's grid: the loop slipped {} symbols", grid.slipped_symbols < 0 ? -grid.slipped_symbols : grid.slipped_symbols);
+    // A loop that slips reads symbols off different peaks, so its mean offset says nothing. A
+    // lost symbol is one the loop stepped over; a gained one, one it read twice.
+    std::string net = "net 0";
+    if (grid.net_slip != 0)
+    {
+        net = std::format("net {} {}", grid.net_slip < 0 ? -grid.net_slip : grid.net_slip, grid.net_slip < 0 ? "lost" : "gained");
+    }
+    std::println("           through the body, against the transmitter's grid: the loop slipped {} symbols, {}", grid.slips, net);
 }
 
 } // namespace
+
+GridReport summarize_grid(std::span<const GridOffset> offsets, std::size_t body_start_symbol)
+{
+    const auto body_start = widen<double>(as_real(body_start_symbol));
+    GridReport report;
+    double sum{};
+    std::size_t count{};
+    std::optional<std::int64_t> first_lag{};
+    std::optional<std::int64_t> previous_lag{};
+    for (const auto& point : offsets)
+    {
+        if (point.burst_symbol < body_start)
+        {
+            continue;
+        }
+        sum += point.offset_samples;
+        ++count;
+        const std::int64_t lag = narrow<std::int64_t>(point.symbol) - std::llround(point.burst_symbol);
+        if (previous_lag)
+        {
+            const auto step = lag - *previous_lag;
+            report.slips += narrow<std::size_t>(step < 0 ? -step : step);
+        }
+        else
+        {
+            first_lag = lag;
+        }
+        previous_lag = lag;
+    }
+    report.mean_offset_samples = count == 0U ? 0.0 : sum / widen<double>(as_real(count));
+    report.net_slip = first_lag && previous_lag ? *previous_lag - *first_lag : 0;
+    return report;
+}
 
 std::optional<BodyMode> parse_mode(const std::string& text)
 {

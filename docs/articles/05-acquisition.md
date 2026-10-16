@@ -494,7 +494,7 @@ Give the transmitter's clock a 1000 ppm error and the two loops part:
 
 ```text
 == Part 3  front end, Part 3's loop: 10.09 s of audio -> 24210 symbols
-           through the body, against the transmitter's grid: the loop slipped 11 symbols
+           through the body, against the transmitter's grid: the loop slipped 11 symbols, net 11 lost
 == Part 4  acquisition, with the phase search on (it moved the loop 0 times): 600 bps, long interleave
            ...
            committed at symbol 1675: the phase search off, the rate integrator tracking
@@ -502,7 +502,7 @@ Give the transmitter's clock a 1000 ppm error and the two loops part:
            through the body, against the transmitter's grid: 0.04 samples off the symbol peaks, in step with every symbol
 ```
 
-Part 3's loop slips 11 symbols through the 4.8 s body, about what the clock drifts across it, as Step 12's type-1 row does on 2400L. With the integrator tracking from the commit, the loop learns the clock and stays on the peaks. Try `--fade 2,1` for two-path fading, `--mode 2400S`, or a message of your own; `--help` lists the rest.
+Part 3's loop slips 11 symbols through the 4.8 s body, every one a symbol stepped over, about what the clock drifts across it, as Step 12's type-1 row does on 2400L. (The runner counts every slip, either way, and gives the net beside it, so a slip one way and one back cannot pass for a loop in step.) With the integrator tracking from the commit, the loop learns the clock and stays on the peaks. Try `--fade 2,1` for two-path fading, `--mode 2400S`, or a message of your own; `--help` lists the rest.
 
 The runner also reads a WAV file, 48 kHz, 16-bit or float. `--save heard.wav` writes the audio it hands the receiver, and `--wav heard.wav` runs the receive stages on it; a recording of a real transmission works the same way, with no bench answer to compare against. `tests/runner_tests.cpp` checks the chain: the WAV file out and back in, the walkthrough's burst found where the bench put it, a 1000 ppm clock learned, and a saved recording read back to the same burst.
 
