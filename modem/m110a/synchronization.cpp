@@ -41,8 +41,8 @@ real words.
 
 WORKED EXAMPLE / DEEP DIVE
 --------------------------
-The full step-by-step walkthrough - with toy numbers, equations, fading-failure
-modes, and debugging signals - lives in the standalone explainer:
+The full step-by-step walkthrough - with the demo's own numbers, equations,
+fading-failure modes, and debugging signals - lives in the standalone explainer:
     modem/m110a/synchronization-and-acquisition-explainer.md
 Explained in the article series, Part 4 (acquisition: finding the burst); its
 unit tests are tests/acquisition_tests.cpp.
@@ -571,8 +571,9 @@ static std::size_t strongest_group(const ConsensusScan& scan) noexcept
 // The mode designators and the countdown come from one segment's decode at the
 // lowest SNR the standard allows; a single mis-decode (measured at 75L: a wrong
 // mode, or a countdown two segments off -> preamble training on a mis-framed
-// reference, residual ~1.0, whole payload lost) is invisible to the consensus
-// scan, which only covers the first two or three segments. Every later segment
+// reference, residual ~1.0, whole payload lost) is invisible to a consensus
+// scan that covers only the first two or three segments, as a streaming
+// receiver's does when it commits early. Every later segment
 // carries the same designators and a consistent boundary, so decode them all
 // from the winner's segment on and let the majority rule; segments past the true
 // boundary decode as invalid and abstain.

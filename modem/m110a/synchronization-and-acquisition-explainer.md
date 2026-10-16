@@ -254,8 +254,8 @@ estimator's range ........... ±1200 Hz (±π rad per symbol); past it the estim
 Real output from `acquisition_demo` (the article's 14 steps), on the 600L mode: the message
 "Hi" through the transmitter, then a channel at 10 dB signal-to-noise with the carrier
 37 Hz off. The burst starts at symbol 1196 of what the receiver hears. The walkthrough
-lowers the correlation floor to 0.35 so that near misses show; the library's default is
-0.75.
+acquires at a 0.35 correlation floor, the floor the streaming receiver later in the series
+runs at; the library's default is 0.75.
 
 ### The comb (Step 4)
 
@@ -328,7 +328,8 @@ acquisition: right
 2400S, 10 dB, the burst started at each of the 20 sample phases of a symbol:
 pulled in before symbol 1200: 17 of 20 plain, 20 of 20 with the phase search
 
-20 dB, a 10 s 2400L body:   +1000 ppm, type 1: 30 symbols slipped
+20 dB, 10 s of 2400L data (a 14.4 s body):
+                            +1000 ppm, type 1: 30 symbols slipped
                             +1000 ppm, type 2: 0 slipped, the integrator 6 ppm off
 ```
 
@@ -421,7 +422,9 @@ hertz, or votes split between body starts.
 - **The vote keeps the winner's carrier estimate.** It changes the mode and the boundary,
   never the frequency, and it needs two votes to overrule.
 - **The floor is a trade.** 0.75 (the default) keeps noise out with margin (10 s of noise
-  peaks near 0.26); the walkthrough's 0.35 is there to show the near misses.
+  peaks near 0.26). The walkthrough runs at 0.35, the streaming receiver's floor, because
+  the floor is only the second of three gates: a start in noise must also pass the carrier
+  gate and read as a valid segment.
 - **The primitives are the streaming API.** A receiver that tests one rolling position a
   step uses them directly, with the same conventions as the batch scan.
 

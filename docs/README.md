@@ -14,9 +14,8 @@ HF Modem in Modern C++":
 - [The rules I build by](articles/02-embedded-cpp-philosophy.md): the embedded-first engineering philosophy behind the code.
 - [The transmit chain](articles/03-transmit-chain.md): the companion to this repository; from user bytes to an 1800 Hz waveform, one stage at a time.
 - [The audio front end](articles/04-audio-front-end.md): the receiver's first stage; mixing down, the matched filter, and finding and keeping each symbol's sampling instant, with the unit tests that check each piece.
-- [Acquisition: finding the burst](articles/05-acquisition.md): the receiver's second stage; finding the preamble in noise, reading the mode and the countdown, the front end's phase search and clock loop, the first part on testing, and the runner, which runs every stage so far on your own message.
 
-The next article, the earliest-path anchor, joins here when it publishes.
+The next article, acquisition, joins here when it publishes.
 
 ## Code-level walkthroughs
 
@@ -27,12 +26,10 @@ The transmit stages have detailed explainers next to their source:
 - [`demapper-and-deinterleaver-explainer.md`](../modem/m110a/demapper-and-deinterleaver-explainer.md): the 8-PSK constellation and the body interleaver.
 - [`standard-interpretations.md`](../modem/m110a/standard-interpretations.md): where the standard needs interpretation, and the call made.
 
-The receiver's stages have them too:
+The receiver's first stage has one too:
 
-- [`audio-front-end-explainer.md`](../modem/m110a/audio-front-end-explainer.md): the streaming front end (mix, matched filter, symbol timing, and from Part 4 the phase search and the rate integrator) and the carrier tracker.
-- [`synchronization-and-acquisition-explainer.md`](../modem/m110a/synchronization-and-acquisition-explainer.md): acquisition; the prefix reference, the carrier estimate, the block correlation, reading the mode and the countdown, the groups and the vote.
+- [`audio-front-end-explainer.md`](../modem/m110a/audio-front-end-explainer.md): the streaming front end (mix, matched filter, symbol timing) and the carrier tracker.
 
-The unit tests in [`tests/front_end_tests.cpp`](../tests/front_end_tests.cpp) and
-[`tests/acquisition_tests.cpp`](../tests/acquisition_tests.cpp) show each piece working, and
-[`tests/runner.cpp`](../tests/runner.cpp) runs the stages end to end. The rest of the
-receiver is declared in the headers and arrives with the receiver series.
+The unit tests in [`tests/front_end_tests.cpp`](../tests/front_end_tests.cpp) show each
+piece of the front end working. The rest of the receiver is declared in the headers and
+arrives with the receiver series.

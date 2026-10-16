@@ -21,6 +21,7 @@
 #include <fstream>
 #include <print>
 #include <string>
+#include <system_error>
 #include <vector>
 
 using namespace modem_test;
@@ -31,11 +32,36 @@ using ::modem::common::DataRate;
 namespace
 {
 
-// A file in the system's temporary folder, for a test that writes one.
-std::string temporary_file(const char* name)
+// A file in the system's temporary folder (the current folder if there is none) for a test
+// that writes one, removed when the test is done with it.
+class TemporaryFile
 {
-    return (std::filesystem::temp_directory_path() / name).string();
-}
+public:
+    explicit TemporaryFile(const char* name)
+    {
+        std::error_code error;
+        auto folder = std::filesystem::temp_directory_path(error);
+        if (error)
+        {
+            folder = ".";
+        }
+        mPath = (folder / name).string();
+    }
+
+    TemporaryFile(const TemporaryFile&) = delete;
+    TemporaryFile& operator=(const TemporaryFile&) = delete;
+
+    ~TemporaryFile()
+    {
+        std::error_code error;
+        std::filesystem::remove(mPath, error);
+    }
+
+    [[nodiscard]] const std::string& path() const noexcept { return mPath; }
+
+private:
+    std::string mPath;
+};
 
 // The walkthrough's line: "Hi" in 600L, noise 10 dB down, the carrier 37 Hz off, seed 4.
 ChainSpec walkthrough_spec()
@@ -56,9 +82,9 @@ TEST_CASE("A WAV file written and read back holds the same audio to 16 bits", "[
     {
         audio[n] = 0.9F * std::sin(as_real(n) * 0.0471F);
     }
-    const auto path = temporary_file("runner_tests_round_trip.wav");
-    REQUIRE(write_wav(path, audio, 48000U).is_ok());
-    const auto read = read_wav(path);
+    const TemporaryFile file("runner_tests_round_trip.wav");
+    REQUIRE(write_wav(file.path(), audio, 48000U).is_ok());
+    const auto read = read_wav(file.path());
     REQUIRE(read.has_value());
     CHECK(read.value().sample_rate_hz == 48000U);
     CHECK(read.value().channels == 1U);
@@ -77,13 +103,14 @@ TEST_CASE("A WAV file written and read back holds the same audio to 16 bits", "[
 
 TEST_CASE("A file that is not a WAV file is refused", "[runner][wav]")
 {
-    const auto path = temporary_file("runner_tests_not_a_wav.wav");
+    const TemporaryFile text("runner_tests_not_a_wav.wav");
     {
-        std::ofstream file(path, std::ios::binary);
+        std::ofstream file(text.path(), std::ios::binary);
         file << "This is a text file, not a RIFF WAVE file.";
     }
-    CHECK_FALSE(read_wav(path).has_value());
-    CHECK_FALSE(read_wav(temporary_file("runner_tests_no_such_file.wav")).has_value());
+    CHECK_FALSE(read_wav(text.path()).has_value());
+    const TemporaryFile missing("runner_tests_no_such_file.wav");
+    CHECK_FALSE(read_wav(missing.path()).has_value());
 }
 
 TEST_CASE("The modes parse as the runner's --mode names them", "[runner][mode]")
@@ -112,7 +139,7 @@ TEST_CASE("The runner finds the walkthrough's burst where the bench put it", "[r
     CHECK(std::fabs(acquisition.acquired->frequency_offset_hz - 37.0F) < 5.0F);
 }
 
-TEST_CASE("The integrator learns a 1000 ppm clock that Part 3's loop alone sits off the peaks for", "[runner][chain][clock]")
+TEST_CASE("At 1000 ppm Part 3's loop slips and the committed receiver learns the clock", "[runner][chain][clock]")
 {
     auto spec = walkthrough_spec();
     spec.channel.snr_db = 20.0F;
@@ -126,9 +153,10 @@ TEST_CASE("The integrator learns a 1000 ppm clock that Part 3's loop alone sits 
     REQUIRE(acquisition.acquired.has_value());
     REQUIRE(front_end.grid.has_value());
     REQUIRE(acquisition.grid.has_value());
-    // The proportional loop alone: a standing distance off the peaks, the drift over its gain.
-    CHECK(std::fabs(front_end.grid->mean_offset_samples) > 2.0);
-    // With the integrator from the first candidate: the clock learned, the loop on the peaks.
+    // Part 3's proportional loop cannot make the standing error 1000 ppm needs, so it slips.
+    CHECK(front_end.grid->slipped_symbols != 0);
+    // Committed at the first candidate, the search off and the integrator tracking: the clock
+    // learned, the loop on the peaks, no slip.
     CHECK(std::fabs(acquisition.learned_clock_ppm - 1000.0) < 50.0);
     CHECK(std::fabs(acquisition.grid->mean_offset_samples) < 0.5);
     CHECK(acquisition.grid->slipped_symbols == 0);
@@ -136,8 +164,9 @@ TEST_CASE("The integrator learns a 1000 ppm clock that Part 3's loop alone sits 
 
 TEST_CASE("A recording the runner saved gives the same burst when read back", "[runner][chain][wav]")
 {
+    const TemporaryFile heard("runner_tests_heard.wav");
     auto spec = walkthrough_spec();
-    spec.wav_out = temporary_file("runner_tests_heard.wav");
+    spec.wav_out = heard.path();
     const auto generated = run_chain(spec);
     REQUIRE(generated.has_value());
     REQUIRE(generated.value().acquisition.acquired.has_value());

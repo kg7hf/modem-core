@@ -302,8 +302,8 @@ struct LongBurstRule
     float snr_db{};
     float delay_ms{};
     float doppler_spread_hz{};
-    std::size_t body_seconds{};
-    double threshold_ppm{}; // at the first judgement
+    std::size_t data_seconds{}; // the body is longer, padded to whole 4.8 s interleaver blocks
+    double threshold_ppm{};     // at the first judgement
     std::vector<RuleRow> rows{};
 };
 

@@ -27,17 +27,13 @@ through the code), then:
 
 - **Build:** F7, or Ctrl+Shift+B.
 - **Run:** the *Run tx_demo* task runs `tx_demo Hi` and writes `tx_out.wav` into the
-  build folder. *Run front_end_demo* and *Run acquisition_demo* print every number in
-  Parts 3 and 4, step by step, and *Run the transmit-chain walkthrough* every number in
-  Part 2, each in its article's order. *Run runner* runs every stage so far on the
-  walkthrough's line.
+  build folder. *Run front_end_demo* prints every number in Part 3, step by step, and
+  *Run the transmit-chain walkthrough* every number in Part 2, each in its article's
+  order.
 - **Debug:** F5 with *tx_demo (gdb)* stops at the top of `main()` in `tests/tx_demo.cpp`;
   step down into the transmit chain from there. *front_end_demo (gdb)* does the same for
   Part 3: it stops at the top of `main()`, and each step it calls is a function in
   `tests/walkthrough/front_end_steps.cpp` (`front_end_tests` checks the same functions).
-  *acquisition_demo (gdb)* does the same for Part 4, with
-  `tests/walkthrough/acquisition_steps.cpp` and `acquisition_tests`, and *runner (gdb)*
-  stops at the top of the runner.
   F5 with *transmit_chain_tests (gdb)* asks which section of Part 2 to run. On a Mac, use
   the *(lldb, macOS)* versions.
 - **Test:** the *Tests* task runs them all. The Testing panel (the flask icon) lists
@@ -67,7 +63,7 @@ or a standalone tool. CI turns them on.
 |---|---|---|
 | Builds clean, no warnings | `-Wall -Wextra`, warnings-as-errors | `cmake -B build -DMODEM_WERROR=ON && cmake --build build` |
 | Produces the exact symbol stream and waveform | the `tx_golden_symbols` and `tx_golden` CTests | `ctest --test-dir build` |
-| Each stage does what its article says | the Catch2 unit tests (`tests/transmit_chain_tests.cpp`, `tests/front_end_tests.cpp`, `tests/acquisition_tests.cpp`, `tests/runner_tests.cpp`) | `ctest --test-dir build` |
+| Each stage does what its article says | the Catch2 unit tests (`tests/transmit_chain_tests.cpp`, `tests/front_end_tests.cpp`) | `ctest --test-dir build` |
 | Consistent style, not argued in review | clang-format 19 (versions format differently, so CI uses one fixed version) | `clang-format --dry-run --Werror $(find modem tests -name '*.?pp')` |
 | Follows the C++ Core Guidelines | clang-tidy 19 (`.clang-tidy`) | `cmake -B build -DMODEM_CLANG_TIDY=ON && cmake --build build` |
 | Stays simple (avg complexity under six) | lizard | `lizard modem -l cpp --CCN 25` |

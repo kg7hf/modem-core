@@ -19,8 +19,9 @@
 // Each article explains one stage; the runner runs them all, in order, on a message of
 // your own or on a recording. Part 2's transmitter makes the burst and the test channel
 // adds what the air does to it; Part 3's front end turns the audio into symbols; Part 4's
-// acquisition finds the burst in them, reads its mode and countdown, and the front end's
-// rate integrator learns the clock from there. Each article adds its stage here.
+// acquisition finds the burst in them with the phase search on, reads its mode and
+// countdown, and from the first candidate the receiver turns the search off and lets the
+// front end's rate integrator learn the clock. Each article adds its stage here.
 // run_chain() returns what every stage found, print() shows it, and runner_tests checks
 // the same report.
 // =============================================================================
@@ -54,28 +55,28 @@ struct GridReport
     std::int64_t slipped_symbols{};
 };
 
-// Part 3: the front end, with the phase search on, as a receiver runs it while it looks
-// for a preamble.
+// Part 3: the front end exactly as Part 3 has it, the proportional loop and nothing else.
 struct FrontEndReport
 {
     std::size_t audio_samples{};
     std::uint32_t sample_rate_hz{};
     std::size_t symbols{};
-    std::uint32_t phase_search_moves{};
     std::optional<GridReport> grid{}; // a generated burst only
 };
 
-// Part 4: acquisition at the walkthrough's 0.35 floor, then the rate integrator tracking
-// from the first candidate.
+// Part 4: the front end with the phase search on and acquisition at the walkthrough's 0.35
+// floor; then the receiver committed at the first candidate, a segment into the preamble: the
+// search off from there, and the rate integrator tracking.
 struct AcquisitionReport
 {
+    std::uint32_t phase_search_moves{};
     modem::common::Status status{};
     std::optional<modem::m110a::BodyAcquisition> acquired{};
     std::optional<std::size_t> true_first_preamble{}; // the bench's own answer, for a generated burst
     std::optional<std::size_t> true_first_body{};
-    std::size_t tracking_from_symbol{};
-    double learned_clock_ppm{}; // the integrator's mean rate through the body, as a clock offset
-    std::optional<GridReport> grid{};
+    std::size_t committed_at_symbol{};
+    double learned_clock_ppm{};       // the integrator's mean rate through the body, as a clock offset
+    std::optional<GridReport> grid{}; // the committed loop, a generated burst only
 };
 
 struct ChainReport

@@ -254,14 +254,16 @@ struct LoopRun
 };
 
 // One burst through the channel and the front end, one symbol a block so the loop's position
-// is kept at every symbol. The integrator, when it runs, tracks from the first candidate, a
-// segment into the preamble, as the receiver starts it; retire_at_symbol holds it at zero from
-// that burst symbol on, as the receiver's judgement does.
-Result<LoopRun> run_loop(BodyMode mode, const ChannelSpec& channel, Loop loop, std::size_t body_seconds = 10U, std::optional<std::size_t> retire_at_symbol = std::nullopt)
+// is kept at every symbol. The burst carries data_seconds of data at the mode's rate; the body
+// is longer, padded to whole interleaver blocks (10 s of 2400L data is a 14.4 s body). The
+// integrator, when it runs, tracks from the first candidate, a segment into the preamble, as
+// the receiver starts it; retire_at_symbol holds it at zero from that burst symbol on, as the
+// receiver's judgement does.
+Result<LoopRun> run_loop(BodyMode mode, const ChannelSpec& channel, Loop loop, std::size_t data_seconds = 10U, std::optional<std::size_t> retire_at_symbol = std::nullopt)
 {
     WaveformSpec spec;
     spec.mode = mode;
-    spec.random_payload_bytes = std::to_underlying(mode.data_rate) * body_seconds / 8U;
+    spec.random_payload_bytes = std::to_underlying(mode.data_rate) * data_seconds / 8U;
     spec.seed = channel.seed;
     auto made = make_test_waveform(spec);
     if (!made)
@@ -1136,7 +1138,7 @@ Result<ClockOffset> clock_offset()
 
 void print(const ClockOffset& step)
 {
-    std::println("{} dB SNR; the loop against the symbol grid through a 10 s body", step.snr_db);
+    std::println("{} dB SNR, 10 s of data in each burst; the loop against the symbol grid through the body", step.snr_db);
     std::println("clock (ppm)  mode   loop    offset (samples)  wander  symbols slipped  integrator at the end");
     for (const auto& row : step.rows)
     {
@@ -1221,7 +1223,7 @@ void print(const LearningTime& step)
 
 Result<LongBurstRule> long_burst_rule()
 {
-    LongBurstRule step{.snr_db = 20.0F, .delay_ms = 1.0F, .doppler_spread_hz = 0.5F, .body_seconds = 25U, .threshold_ppm = rate_ppm(widen<double>(retire_rates.front()))};
+    LongBurstRule step{.snr_db = 20.0F, .delay_ms = 1.0F, .doppler_spread_hz = 0.5F, .data_seconds = 25U, .threshold_ppm = rate_ppm(widen<double>(retire_rates.front()))};
     for (const auto ppm : {0.0F, 350.0F})
     {
         for (std::uint64_t seed = 1U; seed <= 2U; ++seed)
@@ -1234,7 +1236,7 @@ Result<LongBurstRule> long_burst_rule()
                 channel.clock_ppm = ppm;
             }
             channel.seed = seed;
-            const auto running = run_loop(mode_2400l, channel, Loop::running, step.body_seconds);
+            const auto running = run_loop(mode_2400l, channel, Loop::running, step.data_seconds);
             if (!running)
             {
                 return running.error();
@@ -1260,7 +1262,7 @@ Result<LongBurstRule> long_burst_rule()
 
 void print(const LongBurstRule& step)
 {
-    std::println("2400L, a {} s body through Watterson fading, {} ms and {} Hz, {} dB SNR; the integrator from 5 s to 20 s", step.body_seconds, step.delay_ms, step.doppler_spread_hz, step.snr_db);
+    std::println("2400L, {} s of data through Watterson fading, {} ms and {} Hz, {} dB SNR; the integrator from 5 s to 20 s", step.data_seconds, step.delay_ms, step.doppler_spread_hz, step.snr_db);
     std::println("clock (ppm)  seed  largest momentary rate  mean rate  at 20 s (threshold {:.0f} ppm)", step.threshold_ppm);
     for (const auto& row : step.rows)
     {

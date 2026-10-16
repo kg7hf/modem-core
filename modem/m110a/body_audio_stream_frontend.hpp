@@ -163,8 +163,9 @@ public:
 
     // The phase search, made with the three points the loop already reads. Over every
     // phase_search_window_symbols symbols it sums the on-time energy and the energy half a
-    // symbol off it (early and late). A loop on the peaks reads more energy on time (a
-    // raised-cosine pulse at rolloff 0.35 has 0.83 of its peak energy half a symbol off); one
+    // symbol off it (early and late). A loop on the peaks reads more energy on time (half a
+    // symbol off, where two neighbouring pulses overlap, a stream of raised-cosine pulses at
+    // rolloff 0.35 reads about 0.83 of its on-time energy); one
     // hung half a symbol off the peaks reads more off time, so when the off-time sum exceeds
     // the on-time sum by phase_search_margin in two windows running, the loop is moved half a
     // symbol forward, onto the peaks, and pulls in from there within a few hundred symbols

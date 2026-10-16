@@ -49,7 +49,7 @@ graph TD
   F --> G["Timing loop: 20 samples on, plus at most 0.2 of a sample"]
   G -->|next symbol| E
   E --> H["Symbols out: early and on time, 2400 a second"]
-  H --> I["Acquisition (Part 4), then the equalizer and the carrier tracker"]
+  H --> I["Acquisition (next article), then the equalizer and the carrier tracker"]
 ```
 
 ## Mixing down to baseband

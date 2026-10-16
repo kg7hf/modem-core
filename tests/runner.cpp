@@ -56,6 +56,10 @@ constexpr std::string_view usage = R"(usage: runner [message] [options]
 // A number from the command line, all of it, or nothing.
 template <typename Number> std::optional<Number> number(std::string_view text)
 {
+    if (text.starts_with('+') && text.size() > 1U && text[1] != '-') // from_chars takes a minus sign, not a plus
+    {
+        text.remove_prefix(1U);
+    }
     Number value{};
     const auto* end = text.data() + text.size();
     const auto [stop, error] = std::from_chars(text.data(), end, value);

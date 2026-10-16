@@ -12,7 +12,7 @@ Part 3 had `front_end_demo`; this article has `acquisition_demo`. Build it, run 
 ./build/acquisition_demo
 ```
 
-It runs fourteen steps in the order this article takes them, and every number below comes out of one of them. Each step is a function in `tests/walkthrough/acquisition_steps.cpp` that `main()` calls by name, and each section names its step. In VS Code, press F5 and choose *acquisition_demo (gdb)*; it stops at the top of `main()`, so step into each step in turn, or set a breakpoint in the function for the section you are reading and continue to it.
+It runs fourteen steps in the order this article takes them, and every output block below comes out of one of them. Each step is a function in `tests/walkthrough/acquisition_steps.cpp` that `main()` calls by name, and each section names its step. In VS Code, press F5 and choose *acquisition_demo (gdb)*; it stops at the top of `main()`, so step into each step in turn, or set a breakpoint in the function for the section you are reading and continue to it.
 
 | Step | Function | Section |
 |---|---|---|
@@ -58,7 +58,7 @@ segment   0 1 3 0 1 3 1 2 0 | D1 D2 | C1 C2 C3 | 0   countdown
 D1 4, D2 6 on a long preamble: 600 bps, long interleave
 ```
 
-That table is the whole plan for acquisition. The nine fixed symbols are the same in every segment of every burst, so the receiver can search for them without knowing anything else. Once it has found them, D1 and D2 in the same segment name the mode, and the countdown says how many segments remain before the data, so where the body starts.
+Acquisition follows that table. The nine fixed symbols are the same in every segment of every burst, so the receiver can search for them without knowing anything else. Once it has found them, D1 and D2 in the same segment name the mode, and the countdown says how many segments remain before the data, so where the body starts.
 
 ## The reference
 
@@ -100,7 +100,7 @@ void make_body_prefix_reference(std::span<IQSample, prefix_symbols> reference) n
 
 `body_channel_symbol_tribit`, `SyncRandomizer`, `tribit_add` and `psk8_symbol` are Part 2's transmitter functions, so the reference cannot disagree with what the transmitter sends.
 
-The reference never changes, so the scanner builds it once, on first use, into function-local static storage, the way `psk8_symbol` keeps its constellation table. That was not the first version. The scanner used to build it on its own stack: 288 complex floats, 2304 bytes of a 4976-byte frame. When I moved the code into this repository, its stack-usage check, which holds every function in the modem library to 4 KB, failed. In static storage the reference costs no stack, and no time after the first call; the frame is 2672 bytes.
+The reference never changes, so the scanner builds it once, on first use, into function-local static storage, the way `psk8_symbol` keeps its constellation table. That was not the first version. The scanner used to build it on its own stack: 288 complex floats, over 2 KB, in a frame of nearly 5 KB. When I moved the code into this repository, its stack-usage check, which holds every function in the modem library to 4 KB, failed. In static storage the reference costs no stack, and no time after the first call, and the frame is back inside the limit.
 
 ## Correlating so a fade does not hide it
 
@@ -139,7 +139,7 @@ The `rotation` takes the carrier offset out of the reference before it is compar
 
 ## A match at every segment
 
-Step 4, `correlation_comb()`, runs the whole test: the noisy recording, through the front end, correlated at every start from 300 symbols before the burst to the end of its third segment. It lists every start that reaches a correlation of 0.35, with the carrier offset estimated there; starts are counted from the burst's first symbol:
+Step 4, `correlation_comb()`, runs the whole test: the noisy recording, through the front end, correlated at every start from 300 symbols before the burst to the end of its third segment. It lists every start inside the 120 Hz carrier gate that reaches a correlation of 0.35, with the carrier offset estimated there; starts are counted from the burst's first symbol:
 
 ```
 10 dB SNR, carrier +37 Hz off; every start that reaches the 0.35 floor:
@@ -246,7 +246,7 @@ D1 7, D2 7 (patched in):  recognized, not implemented   acquired: no
 
 ## One segment, or all of them
 
-That is everything acquisition needs from one segment. A segment is 200 ms of a weak signal, and one decode at low signal-to-noise can be wrong. The burst sends the same information in every segment, so `acquire_body_preamble()` asks all of them:
+That is everything acquisition needs from one segment. A segment is 200 ms of a weak signal, and one decode at low signal-to-noise can be wrong. The burst sends the same information in every segment, so `acquire_body_preamble()` reads all of them:
 
 ```cpp
     const auto scan = scan_for_consensus(symbol_rate_input, reference, search_starts, config);
@@ -302,7 +302,7 @@ How often acquisition finds a burst at each signal-to-noise ratio, and how often
 
 Part 3 found one start its timing loop handles badly. Started half a symbol off the symbol peaks, the early and late samples are equally strong, the error is close to zero, and the loop barely moves; on the short preamble it can still be off the peaks when the body begins. Part 3 left that as a documented limit, with a `[!shouldfail]` test. The fix belongs to acquisition, because only while the receiver looks for a burst can the loop be anywhere in the symbol; once it has locked to one, the loop is on the peaks.
 
-The fix is a phase search: the energy comparison a batch receiver makes over a whole recording, made with the three points the loop already reads. Over every 120 symbols the front end adds up the energy of the on-time samples and the energy half a symbol off them. A loop on the peaks reads more energy on time; a raised-cosine pulse at the receive filter's 0.35 rolloff has 0.83 of its peak energy half a symbol away. A loop hung half a symbol off reads more energy off time. When the off-time sum beats the on-time sum by 6 percent in two windows running, the loop is moved half a symbol, onto the peaks, and pulls in from there. It waits for two windows so that noise, whose two sums differ by a few percent, never moves a locked loop. The same comparison speeds the loop up while it is well off the peaks: after a window whose off-time energy reached 92 percent of the on-time energy, the next window runs at three times the tracking gain. In `BodyAudioStreamFrontend::process()`:
+The fix is a phase search: the energy comparison a batch receiver makes over a whole recording, made with the three points the loop already reads. Over every 120 symbols the front end adds up the energy of the on-time samples and the energy half a symbol off them. A loop on the peaks reads more energy on time: half a symbol off, where two neighbouring pulses overlap, a stream of raised-cosine pulses at the receive filter's 0.35 rolloff reads about 0.83 of its on-time energy. A loop hung half a symbol off reads more energy off time. When the off-time sum beats the on-time sum by 6 percent in two windows running, the loop is moved half a symbol, onto the peaks, and pulls in from there. It waits for two windows so that noise, whose two sums differ by a few percent, never moves a locked loop. The same comparison speeds the loop up while it is well off the peaks: after a window whose off-time energy reached 92 percent of the on-time energy, the next window runs at three times the tracking gain. In `BodyAudioStreamFrontend::process()`:
 
 ```cpp
         float phase_move = 0.0F;
@@ -350,10 +350,10 @@ Without the search, three starts around half a symbol off missed symbol 1200 of 
 
 Part 3 ended on what its timing loop cannot do. Two sample clocks never agree exactly, so the received symbols arrive slightly faster or slower than 20 samples apart, and part of the timing error is steady. The loop is proportional: each symbol it moves by its gain times the error. To keep up with a steady drift it needs a steady error, so it settles off the symbol peaks by the drift divided by its gain. At 100 ppm the drift is 0.002 samples a symbol; with the loop's gain of 0.08 and the detector's slope near the peak, that is about 0.74 samples. At 1000 ppm it would need ten times as much, which is past the peak of the detector's output, and the loop cannot hold it.
 
-Three more steps measure that, and what fixes it. The bench now records where the loop reads every symbol and compares it with the grid the transmitter laid down, stretched by the clock offset (`grid_offsets()` in the test harness), so these numbers are the loop's own position, not a count of symbol decisions. Step 12, `clock_offset()`, runs a 2400 bps burst with a 10 s body at 20 dB:
+Three more steps measure that, and what fixes it. The bench now records where the loop reads every symbol and compares it with the grid the transmitter laid down, stretched by the clock offset (`grid_offsets()` in the test harness), so these numbers are the loop's own position, not a count of symbol decisions. Step 12, `clock_offset()`, runs 2400 bps bursts carrying 10 s of data each, at 20 dB. The interleaver pads a body to whole blocks, so the long-interleave body lasts 14.4 s and the short one 10.2 s:
 
 ```
-20 dB SNR; the loop against the symbol grid through a 10 s body
+20 dB SNR, 10 s of data in each burst; the loop against the symbol grid through the body
 clock (ppm)  mode   loop    offset (samples)  wander  symbols slipped  integrator at the end
        +100  2400L  type 1             +0.68    0.22                0                      -
        -100  2400L  type 1             -0.64    0.21                0                      -
@@ -364,7 +364,7 @@ clock (ppm)  mode   loop    offset (samples)  wander  symbols slipped  integrato
       +1000  2400S  type 2             +0.07    5.98                0            -11 ppm off
 ```
 
-The first three rows are Part 3's loop, type 1. At 100 ppm either way it sits 0.64 to 0.68 samples off the peaks, on the side the clock pushes it. At 1000 ppm it slips 30 symbols through the body: the whole drift, so it does not follow the clock at all.
+The first three rows are Part 3's loop, type 1. At 100 ppm either way it sits 0.64 to 0.68 samples off the peaks, on the side the clock pushes it. At 1000 ppm it slips 30 symbols through the body. The count starts a segment into the body, and from there the clock drifts by 34 symbols, so the loop barely follows the clock at all.
 
 The fix is a second loop with an integrator, the same structure as Part 3's carrier tracker. The integrator adds up the error, so it settles at the clock's rate, and the proportional term is left with only the jitter. That makes it a type-2 loop. In `BodyAudioStreamFrontend::process()`:
 
@@ -399,7 +399,7 @@ The integrator is off unless `configure_timing_tracker()` turns it on, and with 
 
 An integrator left running is only right while it is fed a signal. On a line with no signal, the timing error is not zero on average, and an integrator running through minutes of noise walks to a rate the next preamble cannot pull in from. So the receiver holds it at zero while it searches, and starts it at the first preamble candidate acquisition finds.
 
-Through a fade it causes trouble too. A fading path changes the shape of the received pulse, so the timing error carries a bias that follows the path gains, and the integrator turns that bias into a rate. A clock offset is a crystal's and does not change during a burst, so the first design I measured learned the rate in the preamble and froze it for the body: track from the first candidate, and once 2880 symbols and the end of the preamble had passed, freeze. On the front end alone, at 20 dB, it worked. In the receiver's qualification (the whole receiver, decoding, at the signal-to-noise ratio where each mode is meant to work, 60 runs per condition, each with its own seed: the number that starts the random-number generator, so a run's noise and fading can be repeated exactly) it did not. At 1000 ppm either way, on the short-interleave modes, the receiver with the freeze lost about two thirds of the bursts that the receiver with the integrator left running decoded. Step 13, `learning_time()`, shows why. It runs the integrator on 600 bps with the short interleave and the clock 1000 ppm off, at falling signal-to-noise ratios:
+Through a fade it causes trouble too. A fading path changes the shape of the received pulse, so the timing error carries a bias that follows the path gains, and the integrator turns that bias into a rate. A clock offset is a crystal's and does not change during a burst, so the first design I measured learned the rate in the preamble and froze it for the body: track from the first candidate, and once 2880 symbols and the end of the preamble had passed, freeze. On the front end alone, at 20 dB, it worked. In the receiver's qualification (the whole receiver, decoding, on white noise through the test bench's channel at the signal-to-noise ratio where each mode is meant to work, many runs per condition, each with its own seed: the number that starts the random-number generator, so a run's noise and fading can be repeated exactly) it did not. At 1000 ppm either way, on the short-interleave modes, the receiver with the freeze lost about two thirds of the bursts that the receiver with the integrator left running decoded. Step 13, `learning_time()`, shows why. It runs the integrator on 600 bps with the short interleave and the clock 1000 ppm off, at falling signal-to-noise ratios:
 
 ```
 600S, the clock +1000 ppm off, the integrator running from the first candidate, three seeds
@@ -412,12 +412,12 @@ SNR (dB)  rate error at 2880 symbols (ppm)  within 100 ppm from symbol
 
 At 20 dB the integrator is within 100 ppm of the clock about 2700 symbols after the first candidate, inside the 2880-symbol window. At 4 dB it takes 4400 to 8600 symbols, and when the window closes it is still 580 to 845 ppm off. The timing error is divided by the energy of the three samples it reads, and at 4 dB much of that energy is noise, so each symbol moves the loop and the integrator less. A fixed window that fits 20 dB freezes a wrong rate near the modes' working SNR.
 
-Leaving the integrator running has a cost of its own on long messages. In the qualification runs through a slow fade, two paths 1 ms apart with a 0.5 Hz fading bandwidth, the running integrator lost all twenty of a set of five-minute 75 bps messages, where the type-1 loop decoded nineteen. And the type-1 loop alone carries 250 ppm on the slowest mode at its Table 10.1 SNR, and more on the faster ones. MIL-STD-188-110B holds signaling rates to 0.01 percent of nominal (4.2.1), so two modems within the standard are at most 200 ppm apart: the integrator is for clocks worse than the standard allows.
+Leaving the integrator running has a cost of its own on long messages. Through pathsim, on a slow fade (two paths 1 ms apart with a 0.5 Hz fading bandwidth) at the mode's Table 10.1 signal-to-noise ratio, the running integrator lost every one of a set of five-minute 75 bps messages, where the type-1 loop lost at most one; the test bench's own channel gave the same picture. And on white noise at each mode's Table 10.1 signal-to-noise ratio, the type-1 loop alone decoded with the clock up to 250 ppm off, though 75 bps at +250 ppm was marginal, and it lost every long-interleave mode at 500 ppm. MIL-STD-188-110B holds signaling rates to 0.01 percent of nominal (4.2.1), so two modems within the standard are at most 200 ppm apart: the integrator is for clocks worse than the standard allows.
 
-So the receiver judges the integrator rather than freezing it. It tracks from the first candidate; at 20, 30 and 40 seconds it takes the mean of the integrator's rate since 5 seconds, when the pull-in is over, and if that mean is below a threshold rising from 125 to 175 ppm, it retires the integrator: holds it at zero, the type-1 loop, for the rest of the burst. An integrator that passes the last judgement runs to the end, and a burst over before 20 seconds keeps it throughout. The front end keeps the sum in fixed point, the rate times 2^20 per symbol, so 10^5 symbols lose nothing to float rounding. Step 14, `long_burst_rule()`, shows why the judgement is made on the mean. It runs a 2400L burst through the same slow fade, with no clock offset and with 350 ppm:
+So the receiver judges the integrator rather than freezing it. It tracks from the first candidate; at 20, 30 and 40 seconds it takes the mean of the integrator's rate since 5 seconds, when the pull-in is over, and if that mean is below a threshold rising from 125 to 175 ppm, it retires the integrator: holds it at zero, the type-1 loop, for the rest of the burst. An integrator that passes the last judgement runs to the end, and a burst over before 20 seconds keeps it throughout. The front end keeps the sum in fixed point, the rate times 2^20 per symbol, so 10^5 symbols lose nothing to float rounding. Step 14, `long_burst_rule()`, shows why the judgement is made on the mean. It runs 25 s of 2400L data, a 28.8 s body, through the same slow fade, with no clock offset and with 350 ppm:
 
 ```
-2400L, a 25 s body through Watterson fading, 1 ms and 0.5 Hz, 20 dB SNR; the integrator from 5 s to 20 s
+2400L, 25 s of data through Watterson fading, 1 ms and 0.5 Hz, 20 dB SNR; the integrator from 5 s to 20 s
 clock (ppm)  seed  largest momentary rate  mean rate  at 20 s (threshold 125 ppm)
          +0     1                 712 ppm     27 ppm  retired
          +0     2                 643 ppm     83 ppm  retired
@@ -435,19 +435,19 @@ This article starts a testing thread that runs through the rest of the series, a
 
 MIL-STD-188-110B sets the serial-tone performance in 5.3.2.5, Table XX: a coded bit-error rate at a signal-to-noise ratio measured in a 3 kHz band, on Watterson-model channels per ITU-R F.520-2 (for the fading rows, two independent fading paths of equal average power), with the longest interleaver. The JITC conformance test plan (2004) turns that into the test conditions of its Table 10.1 (Subtest 10), and its criteria say how long: at least an hour on the non-fading channel, and at least five hours on each fading one.
 
-The hours come from the statistics. **A bit-error rate of 10^-5 is one error in 100,000 bits.** With no errors in n bits, the 95 percent upper bound on the rate is about 3/n, so showing 10^-5 takes about 300,000 error-free bits: two minutes at 2400 bps, over an hour at 75 bps. A fading channel needs longer still, because the errors come in the deep fades, which are rare; the test has to run long enough to meet a great many of them.
+The hours come from the statistics. **A bit-error rate of 10^-5 is one error in 100,000 bits.** With no errors in n bits, the 95 percent upper bound on the rate is about 3/n, so showing 10^-5 takes about 300,000 error-free bits: two minutes at 2400 bps, over an hour at 75 bps. That bound assumes the errors are independent, and a decoder's are not: when it fails, it fails over a run of bits, so for a coded modem the bound is optimistic. A fading channel needs longer still, because the errors come in the deep fades, which are rare; the test has to run long enough to meet a great many of them.
 
 None of that tests acquisition directly. The serial-tone section sets no acquisition requirement, and Appendix C's acquisition test, for the higher-rate waveforms, reads "Not yet standardized" (C.6.2). The acquisition tests in this article are mine: every mode found, the carrier gate, waking mid-preamble, a mode not implemented, and nothing in ten seconds of noise.
 
 A test result is only as good as the channel it ran through, so this work uses three channel simulators, and measures each before trusting its numbers:
 
 - **The test bench's own model**, inside the unit tests: a two-path Watterson model, an engineering model. Its noise and fading come from a random-number generator started from a seed, so two designs run on the same seeds meet exactly the same noise and the same fades, and any difference between them comes from the designs, not from luck. That makes it good for comparing designs, as Steps 12 to 14 do, and not for absolute numbers.
-- **pathsim** ([github.com/bubnikv/pathsim](https://github.com/bubnikv/pathsim)): Moe Wheatley AE4JY's PathSim, reworked as a command-line tool by Vojtech Bubnik OK1IAK, under the GPL-3.0. The seeded campaigns run on it. My build fixes defects in the stock source (the Hilbert filter's quadrature taps were never applied, so the fading was not circular) and adds a seed, so a run repeats.
-- **The IONOS HF channel simulator** ([github.com/ARSFI/HFSimulator](https://github.com/ARSFI/HFSimulator)): a hardware box by Rick Muething KN6KB, Tom Lafleur KA6IQA and Tom Whiteside N5TW, from the Amateur Radio Safety Foundation, under the MIT license. It puts a real audio path between the transmitter and the receiver, so it checks the software simulators independently. Measured the same way as pathsim, it delivered about 4.6 dB more signal-to-noise ratio than its setting on a non-fading channel (its firmware adds a 4.28 dB calibration factor), and its two-path settings stop at 4 ms and 2 Hz, short of the 5 ms, 5 Hz channel Table 10.1 sets for the lowest rates.
+- **pathsim** ([github.com/bubnikv/pathsim](https://github.com/bubnikv/pathsim)): Moe Wheatley AE4JY's PathSim, reworked by Vojtech Bubnik OK1IAK, under the GPL-3.0. The seeded campaigns run on it; my build adds a seed, so a run repeats.
+- **The IONOS HF channel simulator** ([github.com/ARSFI/HFSimulator](https://github.com/ARSFI/HFSimulator)): a hardware box by Rick Muething KN6KB, Tom Lafleur KA6IQA and Tom Whiteside N5TW, from the Amateur Radio Safety Foundation, under the MIT license. It puts a real audio path between the transmitter and the receiver, so it checks the software simulators independently. Measured the same way as pathsim, it delivered more signal-to-noise ratio than its setting on a non-fading channel, by an amount that varied with the signal level, and its two-path settings stop at 4 ms and 2 Hz, short of the 5 ms, 5 Hz channel Table 10.1 sets for the lowest rates.
 
-A commercial laboratory channel simulator costs many thousands of dollars. Whichever kind is used, MIL-STD-188-110D's Appendix E says what it must meet when it is used to test a modem's compliance: a frequency response within 0.5 dB; a signal-to-noise ratio within 0.25 dB of its setting on a non-fading path, averaged over at least 20 minutes, and within 0.5 dB on fading paths, averaged over at least two hours; and a Doppler spectrum measured from at least three hours of a tone (E.7). I ran the same kinds of measurement, shorter than the appendix asks, with the same probes on every simulator.
+A commercial laboratory channel simulator costs many thousands of dollars. Whichever kind is used, MIL-STD-188-110D's Appendix E applies to a simulator used to test a modem's compliance, and says what it should meet: a frequency response within 0.5 dB; a signal-to-noise ratio within 0.25 dB of its setting on a non-fading path, averaged over at least 20 minutes, and within 0.5 dB on fading paths, averaged over at least two hours; and a Doppler spectrum measured from at least three hours of a tone (E.7). I ran the same kinds of measurement, shorter than the appendix asks, with the same probes on every simulator.
 
-Two other software modems decode the same captured audio beside this one: MS-DMT, N2CKH's free, closed-source 110A modem, and a second software modem. They are a second opinion on the test set-up, not a reference for this receiver: when all three decode a clean burst exactly, the audio path is good, and a disagreement points at the set-up before it points at a decoder.
+Two other software modems decode the same captured audio beside this one: MS-DMT, N2CKH's free, closed-source 110A modem, and ION2G, another 110A software modem. They are a second opinion on the test set-up, not a reference for this receiver: when all three decode a clean burst exactly, the audio path is good, and a disagreement points at the set-up before it points at a decoder.
 
 The test audio comes from my waveform generator and signal lab. They render a recording with CW, noise, impulses, fades and sample slips mixed in, play it from the PC or from a microcontroller board that is also a USB sound card, capture what comes back, and keep a journal to replay any run. They will be public, under the GPL-3.0, soon.
 
@@ -457,7 +457,7 @@ The test audio comes from my waveform generator and signal lab. They render a re
 
 The test bench grew with them. The test channel takes a carrier offset, in whole hertz, so the shift is exact over any length of audio, the way the CW tone is. Its clock offset came back too, fixed: the first version kept the resampler's position in one `float`, which past a fraction of a second could no longer take the offset's tiny step, so a whole burst got the offset only at its start. It now keeps a whole sample plus a fraction, the way the front end keeps time. And the bench has its own answer for where a burst sits in the front end's output, `locate_burst()`: it lines the burst's last 2000 symbols up with what was sent, eight at a time so a turning carrier cannot cancel the sum. Acquisition is checked against that, and never against itself.
 
-The acquisition code reached this repository rearranged. `acquire_body_preamble()` had grown into one function of 400 lines with a lambda inside it, a fix at a time; it is now the short sequence above, one named function a step. Before the rearrangement went anywhere, a scratch program ran 1296 acquisitions through the old and the new code (six modes, four carrier offsets, three signal-to-noise ratios, one path and two) and compared every field of every result bit for bit. They were identical.
+The acquisition code reached this repository rearranged. `acquire_body_preamble()` had grown into one function of 400 lines with a lambda inside it, a fix at a time; it is now the short sequence above, one named function a step. Before the rearrangement went anywhere, a scratch program ran the old and the new code on the same inputs, every combination of six modes, four carrier offsets, three signal-to-noise ratios, six channels (one path; two paths at three spacings; two with the first path faded) and three acquisition settings, and compared every field of every result bit for bit. They were identical.
 
 ## Run it on your own
 
@@ -471,17 +471,20 @@ Each demo walks one stage on data I chose. The runner runs every stage published
 == Part 2  transmit: "Hi" in 600L (600 bps, long interleave)
            2 bytes -> 11520 preamble symbols (24 segments) + 11520 body symbols, 9.60 s of audio
 == Channel: 10 dB SNR, carrier +37 Hz; 0.5 s of line before the burst, seed 4
-== Part 3  front end: 10.10 s of audio -> 24232 symbols; the phase search moved the loop 0 times
+== Part 3  front end, Part 3's loop: 10.10 s of audio -> 24232 symbols
            through the body, against the transmitter's grid: 0.04 samples off the symbol peaks, in step with every symbol
-== Part 4  acquisition: 600 bps, long interleave
+== Part 4  acquisition, with the phase search on (it moved the loop 0 times): 600 bps, long interleave
            read at symbol 3116: countdown 19, correlation 0.966, carrier +37.7 Hz
            preamble from symbol 1196, body from symbol 12716 (the bench: 1196 and 12716)
-           the clock: the rate integrator, tracking from symbol 1676, learned 0 ppm through the body
+           committed at symbol 1676: the phase search off, the rate integrator tracking
+           the clock: the integrator learned 0 ppm through the body
            through the body, against the transmitter's grid: 0.04 samples off the symbol peaks, in step with every symbol
 == next: the first path (Part 5)
 ```
 
 That is the line from Steps 4 and 6: the same message, noise and seed, so the same burst. Step 6 showed the first segment through the gates, with countdown 23; the runner shows what `acquire_body_preamble()` returns, the group's best-correlated segment, here the fifth, with countdown 19. Both put the preamble at symbol 1196 and the body at 12716, where the bench's own answer puts them.
+
+The runner runs the front end three times over the audio, once for each way a receiver can run it. The Part 3 line is Part 3's loop and nothing else. Acquisition runs on the front end with the phase search on, the way a receiver runs it while it looks for a preamble. Then the runner commits at the first candidate, a segment into the preamble: from there the search is off and the rate integrator tracks, the way a receiver listening live would have run it from that point. (A live receiver does all of that in one pass; the runner has the whole recording, so it finds the candidate first and then runs the front end again.)
 
 Give the transmitter's clock a 1000 ppm error and the two loops part:
 
@@ -490,15 +493,16 @@ Give the transmitter's clock a 1000 ppm error and the two loops part:
 ```
 
 ```text
-== Part 3  front end: 10.09 s of audio -> 24231 symbols; the phase search moved the loop 0 times
-           through the body, against the transmitter's grid: 3.51 samples off the symbol peaks, in step with every symbol
-== Part 4  acquisition: 600 bps, long interleave
+== Part 3  front end, Part 3's loop: 10.09 s of audio -> 24210 symbols
+           through the body, against the transmitter's grid: the loop slipped 11 symbols
+== Part 4  acquisition, with the phase search on (it moved the loop 0 times): 600 bps, long interleave
            ...
-           the clock: the rate integrator, tracking from symbol 1675, learned +1000 ppm through the body
+           committed at symbol 1675: the phase search off, the rate integrator tracking
+           the clock: the integrator learned +1000 ppm through the body
            through the body, against the transmitter's grid: 0.04 samples off the symbol peaks, in step with every symbol
 ```
 
-Part 3's loop alone sits three and a half samples off the peaks, the standing error a proportional loop needs; with the integrator started at the first candidate, the loop learns the clock and sits back on them. (The runner has the whole recording, so it finds the first candidate, then runs the front end again with the integrator tracking from there, as a receiver listening live would have.) Try `--fade 2,1` for two-path fading, `--mode 2400S`, or a message of your own; `--help` lists the rest.
+Part 3's loop slips 11 symbols through the 4.8 s body, about what the clock drifts across it, as Step 12's type-1 row does on 2400L. With the integrator tracking from the commit, the loop learns the clock and stays on the peaks. Try `--fade 2,1` for two-path fading, `--mode 2400S`, or a message of your own; `--help` lists the rest.
 
 The runner also reads a WAV file, 48 kHz, 16-bit or float. `--save heard.wav` writes the audio it hands the receiver, and `--wav heard.wav` runs the receive stages on it; a recording of a real transmission works the same way, with no bench answer to compare against. `tests/runner_tests.cpp` checks the chain: the WAV file out and back in, the walkthrough's burst found where the bench put it, a 1000 ppm clock learned, and a saved recording read back to the same burst.
 

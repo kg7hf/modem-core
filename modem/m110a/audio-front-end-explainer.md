@@ -205,8 +205,10 @@ The constants, with the reason for each:
 - **Detailed:** The detector's output is zero on the peaks and also half a symbol off
   them, between two peaks, and a loop that starts there slides off slowly, for up to 2000
   symbols. Over every 120 symbols the search sums the on-time energy and the mean of the
-  early and late energies. A raised-cosine pulse at rolloff 0.35 keeps 0.83 of its peak
-  energy half a symbol off, so a loop on the peaks reads more on time; when the off-time
+  early and late energies. Half a symbol off the peaks, where two neighbouring pulses
+  overlap, a stream of raised-cosine pulses at rolloff 0.35 reads about 0.83 of its on-time
+  energy (about 0.86 through this modem's 0.25 transmit and 0.35 receive filters), so a loop
+  on the peaks reads more on time; when the off-time
   sum beats the on-time sum by 6 percent two windows running, the loop moves half a symbol
   (10 samples) forward. A window whose off-time energy came within 0.92 of the on-time
   energy runs the next window at 0.24, three times the tracking gain. It counts symbols,

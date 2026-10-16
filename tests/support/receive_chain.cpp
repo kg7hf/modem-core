@@ -122,17 +122,25 @@ Result<Line> record(const std::string& path)
     return line;
 }
 
-// Part 3: the front end over the whole line, with the phase search on, as a receiver runs
-// it while it looks for a preamble. With a start, the rate integrator tracks from that
-// stream sample on (Part 4); without, it is held and the loop is Part 3's.
-Status run_front_end(FrontEndRunner& runner, std::span<const float> audio, std::optional<std::uint64_t> track_from_sample)
+// How one pass of the front end over the line is set up. Neither, and the loop is Part 3's.
+// The phase search alone is the front end as a receiver runs it while it looks for a preamble.
+// With a commit, from that stream sample on the search is off and the rate integrator tracks,
+// as a receiver runs it once it has committed to a burst (Part 4).
+struct FrontEndPlan
+{
+    bool phase_search{};
+    std::optional<std::uint64_t> commit_sample{};
+};
+
+Status run_front_end(FrontEndRunner& runner, std::span<const float> audio, const FrontEndPlan& plan)
 {
     FrontEndOptions options;
-    options.phase_search = true;
-    if (track_from_sample)
+    options.phase_search = plan.phase_search;
+    if (plan.commit_sample)
     {
+        options.phase_search_off_at_sample = plan.commit_sample;
         options.timing_integral_gain = BodyAudioStreamFrontend::default_timing_integral_gain;
-        options.timing_rate_changes.push_back({.at_sample = *track_from_sample, .mode = TimingRateMode::tracking});
+        options.timing_rate_changes.push_back({.at_sample = *plan.commit_sample, .mode = TimingRateMode::tracking});
     }
     auto status = runner.initialize(options);
     if (status.is_ok())
@@ -194,13 +202,20 @@ double clock_ppm_from_rate(double rate) noexcept
     return (nominal / (nominal + rate) - 1.0) * 1.0e6;
 }
 
-// Part 4: acquisition over the search pass's symbols, then the front end again with the
-// rate integrator tracking from the first candidate, a segment into the preamble, as a
-// streaming receiver would have started it. (The runner has the whole line, so it finds the
-// candidate first and runs the front end a second time.)
-Status acquire(const ChainSpec& spec, const Line& line, const FrontEndRunner& search, ChainReport& report)
+// Part 4: the front end with the phase search on, as a receiver runs it while it looks for a
+// preamble, and acquisition over its symbols. Then the front end once more, committed at the
+// first candidate, a segment into the preamble: the search off from there and the rate
+// integrator tracking, as a streaming receiver would have run it. (The runner has the whole
+// line, so it finds the candidate first and runs the front end again.)
+Status acquire(const ChainSpec& spec, const Line& line, ChainReport& report)
 {
     auto& acquisition = report.acquisition;
+    FrontEndRunner search;
+    if (const auto status = run_front_end(search, line.audio, FrontEndPlan{.phase_search = true}); !status.is_ok())
+    {
+        return status;
+    }
+    acquisition.phase_search_moves = search.phase_search_moves();
     const auto symbols = on_time_symbols(search);
     const auto acquired = acquire_body_preamble(symbols, acquisition_config());
     if (!acquired)
@@ -223,17 +238,19 @@ Status acquire(const ChainSpec& spec, const Line& line, const FrontEndRunner& se
     }
 
     const auto first_candidate = found.preamble_start_in_buffer ? found.first_preamble_symbol : found.detected_segment_symbol;
-    acquisition.tracking_from_symbol = std::min(first_candidate + segment_symbols, symbols.size() - 1U);
-    FrontEndRunner tracking;
-    if (const auto status = run_front_end(tracking, line.audio, sample_before_symbol(search, acquisition.tracking_from_symbol)); !status.is_ok())
+    acquisition.committed_at_symbol = std::min(first_candidate + segment_symbols, symbols.size() - 1U);
+    FrontEndRunner committed;
+    const FrontEndPlan plan{.phase_search = true, .commit_sample = sample_before_symbol(search, acquisition.committed_at_symbol)};
+    if (const auto status = run_front_end(committed, line.audio, plan); !status.is_ok())
     {
         return status;
     }
 
-    // The integrator's mean rate through the body: the clock it learned.
+    // The integrator's mean rate through the body: the clock it learned. On a recording the
+    // body runs to the end of the audio, so a long tail of noise after the burst counts too.
     double sum{};
     std::size_t count{};
-    for (const auto& point : tracking.timing_points())
+    for (const auto& point : committed.timing_points())
     {
         if (point.symbol >= found.first_body_symbol && point.symbol < body_end)
         {
@@ -244,7 +261,7 @@ Status acquire(const ChainSpec& spec, const Line& line, const FrontEndRunner& se
     acquisition.learned_clock_ppm = count == 0U ? 0.0 : clock_ppm_from_rate(sum / widen<double>(as_real(count)));
     if (line.burst)
     {
-        acquisition.grid = grid_report(tracking, *line.burst, clock_ppm);
+        acquisition.grid = grid_report(committed, *line.burst, clock_ppm);
     }
     return Status::success();
 }
@@ -305,8 +322,13 @@ std::string channel_text(const ChainSpec& spec, std::size_t lead)
 
 void print_grid(const GridReport& grid)
 {
-    const auto slips = grid.slipped_symbols == 0 ? std::string{"in step with every symbol"} : std::format("{:+} symbols slipped", grid.slipped_symbols);
-    std::println("           through the body, against the transmitter's grid: {:.2f} samples off the symbol peaks, {}", grid.mean_offset_samples, slips);
+    if (grid.slipped_symbols == 0)
+    {
+        std::println("           through the body, against the transmitter's grid: {:.2f} samples off the symbol peaks, in step with every symbol", grid.mean_offset_samples);
+        return;
+    }
+    // A loop that slips reads each symbol off a different peak, so its mean offset says nothing.
+    std::println("           through the body, against the transmitter's grid: the loop slipped {} symbols", grid.slipped_symbols < 0 ? -grid.slipped_symbols : grid.slipped_symbols);
 }
 
 } // namespace
@@ -372,19 +394,18 @@ Result<ChainReport> run_chain(const ChainSpec& spec)
         }
     }
 
-    FrontEndRunner search;
-    if (const auto status = run_front_end(search, line.value().audio, std::nullopt); !status.is_ok())
+    FrontEndRunner part3;
+    if (const auto status = run_front_end(part3, line.value().audio, FrontEndPlan{}); !status.is_ok())
     {
         return status;
     }
-    report.front_end =
-        FrontEndReport{.audio_samples = line.value().audio.size(), .sample_rate_hz = sample_rate_hz, .symbols = search.symbols().size(), .phase_search_moves = search.phase_search_moves()};
+    report.front_end = FrontEndReport{.audio_samples = line.value().audio.size(), .sample_rate_hz = sample_rate_hz, .symbols = part3.symbols().size()};
     if (line.value().burst)
     {
-        report.front_end.grid = grid_report(search, *line.value().burst, spec.channel.clock_ppm.value_or(0.0F));
+        report.front_end.grid = grid_report(part3, *line.value().burst, spec.channel.clock_ppm.value_or(0.0F));
     }
 
-    if (const auto status = acquire(spec, line.value(), search, report); !status.is_ok())
+    if (const auto status = acquire(spec, line.value(), report); !status.is_ok())
     {
         return status;
     }
@@ -409,8 +430,7 @@ void print(const ChainReport& report)
     }
 
     const auto& front_end = report.front_end;
-    std::println("== Part 3  front end: {:.2f} s of audio -> {} symbols; the phase search moved the loop {} times", as_real(front_end.audio_samples) / as_real(front_end.sample_rate_hz),
-                 front_end.symbols, front_end.phase_search_moves);
+    std::println("== Part 3  front end, Part 3's loop: {:.2f} s of audio -> {} symbols", as_real(front_end.audio_samples) / as_real(front_end.sample_rate_hz), front_end.symbols);
     if (front_end.grid)
     {
         print_grid(*front_end.grid);
@@ -423,13 +443,14 @@ void print(const ChainReport& report)
         return;
     }
     const auto& found = *acquisition.acquired;
-    std::println("== Part 4  acquisition: {}", mode_description(found.recognition.mode));
+    std::println("== Part 4  acquisition, with the phase search on (it moved the loop {} times): {}", acquisition.phase_search_moves, mode_description(found.recognition.mode));
     std::println("           read at symbol {}: countdown {}, correlation {:.3f}, carrier {} Hz", found.detected_segment_symbol, found.preamble_countdown, found.normalized_correlation,
                  hz_text(found.frequency_offset_hz));
     const auto preamble = found.preamble_start_in_buffer ? std::format("preamble from symbol {}", found.first_preamble_symbol) : std::string{"preamble started before the audio"};
     const auto truth = acquisition.true_first_preamble ? std::format(" (the bench: {} and {})", *acquisition.true_first_preamble, acquisition.true_first_body.value_or(0U)) : std::string{};
     std::println("           {}, body from symbol {}{}", preamble, found.first_body_symbol, truth);
-    std::println("           the clock: the rate integrator, tracking from symbol {}, learned {} ppm through the body", acquisition.tracking_from_symbol, ppm_text(acquisition.learned_clock_ppm));
+    std::println("           committed at symbol {}: the phase search off, the rate integrator tracking", acquisition.committed_at_symbol);
+    std::println("           the clock: the integrator learned {} ppm through the body", ppm_text(acquisition.learned_clock_ppm));
     if (acquisition.grid)
     {
         print_grid(*acquisition.grid);

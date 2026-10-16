@@ -48,6 +48,9 @@ struct FrontEndOptions
     std::optional<float> timing_integral_gain{};
     // The phase search, as the receiver runs it while it looks for a preamble.
     bool phase_search{};
+    // The stream sample at which the search goes off, as the receiver turns it off once it
+    // commits to a burst; none, and it stays on. A block is cut there, as at a rate change.
+    std::optional<std::uint64_t> phase_search_off_at_sample{};
     // What the integrator does from each stream sample on, in order of at_sample; held
     // before the first. A block is cut at each at_sample, so the change lands on that
     // very sample (the symbols are the same however the audio is cut).

@@ -172,11 +172,24 @@ Status FrontEndRunner::feed(std::span<const float> audio)
             ++mNextChange;
         }
 
+        // The search goes off the same way, before its sample.
+        const auto& search_off_at = mOptions.phase_search_off_at_sample;
+
+        if (search_off_at && mFrontEnd.phase_search() && *search_off_at <= mSamplesFed)
+        {
+            mFrontEnd.set_phase_search(false);
+        }
+
         auto size = std::min({mOptions.block_sizes[mNextBlock], audio.size() - start, BodyAudioStreamFrontend::maximum_block_samples});
 
         if (mNextChange < changes.size())
         {
             size = clamp_to_size(changes[mNextChange].at_sample - mSamplesFed, size);
+        }
+
+        if (search_off_at && mFrontEnd.phase_search())
+        {
+            size = clamp_to_size(*search_off_at - mSamplesFed, size);
         }
 
         mNextBlock = (mNextBlock + 1U) % mOptions.block_sizes.size();

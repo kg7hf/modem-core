@@ -108,7 +108,7 @@ for audio). It is the integrator that wires these into a burst.
 | `InterleaverSpec` | The interleaver matrix/permutation for a mode (see `modem/m110a/demapper-and-deinterleaver-explainer.md`). |
 | `BodyMode` / `BodyDesignators` | The rate+interleave, and its two on-air D1/D2 designator symbols. |
 | `BodyBlockPlan` | **The per-mode geometry** every receiver stage is sized by: information/coded bits, data/probe symbols per frame, bits per symbol, FEC repetitions, transmitted symbols per block. |
-| `BodyEncodeState` / `BodyDecodeState` | The running K=7 encoder state threaded **across blocks** so the FEC is one continuous stream (not restarted per block). `BodyDecodeState` is the receive-side twin, for the declared `decode_body_block`; it also counts, over the blocks decoded so far, the re-encoded code bits that disagree with the received hard decisions and the bits compared, a decoded block's own quality figure. |
+| `BodyEncodeState` / `BodyDecodeState` | The running K=7 encoder state threaded **across blocks** so the FEC is one continuous stream (not restarted per block). `BodyDecodeState` is the receive-side twin, for the declared `decode_body_block`. |
 | `BodyAudioStreamModulator` | Stateful RRC pulse-shaper + 1800 Hz upconverter for rendering a long transmission in codec-sized windows. |
 | `BodyDataRandomizer` / `SyncRandomizer` | The two scramblers (§6). |
 
@@ -179,7 +179,7 @@ Every short block totals **1440 transmitted symbols**; a long block is ×8 (11,5
 - **`body_designators` / `recognize_body_designators`:** The map between a mode and its
   on-air D1/D2 symbols (e.g. 600 short = {6,6}, 600 long = {4,6}). `body_designators`
   is the `constexpr` forward direction; the reverse, `recognize_body_designators`, is
-  implemented too: acquisition (Part 4) reads a preamble's mode with it.
+  declared in the header and arrives with the receiver series.
 - **`body_channel_symbol_tribit` / `channel_symbol_patterns`:** The 8 mutually
   **orthogonal** spreading patterns (values 0/4 = antipodal BPSK points) used
   throughout the preamble and in the probes. Orthogonality is what lets a receiver
@@ -234,12 +234,12 @@ Deliberately compact, **illustrative, not a real capture, not a compliance trace
 
 ### Receive (a teaser)
 
-The block's receive side is declared here, not yet implemented. Given this block's 1440
+The receive side is declared here, not yet implemented. Given this block's 1440
 received symbols and the same `BodyBlockPlan`, `decode_body_block` will return its 360
 information bits; across the concatenated blocks, `find_body_eom` and
 `pack_body_payload` will turn those bits back into payload octets. Those
-implementations arrive with the receiver series; the stages before them, the front end
-and acquisition, are here (Parts 3 and 4).
+implementations, and everything a receiver must do before them, arrive with the
+receiver series.
 
 ### One-screen summary
 

@@ -25,8 +25,8 @@
 // Explained in the article series, Part 4 (acquisition: finding the burst); its
 // unit tests are tests/acquisition_tests.cpp.
 //
-// The full teaching walkthrough - pipeline diagram, worked example with toy
-// numbers, equations, fading-failure modes, and debugging signals - is in
+// The full teaching walkthrough - pipeline diagram, worked example on the
+// demo's own output, equations, fading-failure modes, and debugging signals - is in
 //   modem/m110a/synchronization-and-acquisition-explainer.md
 // Implementation and its rationale are in synchronization.cpp.
 // =============================================================================
@@ -41,9 +41,9 @@ using ::modem::common::Status;
 struct BodyAcquisitionConfig
 {
     float symbol_rate_hz{2400.0F};
-    float minimum_correlation{0.75F};
-    float maximum_frequency_offset_hz{120.0F};
-    std::size_t maximum_start_symbol{};
+    float minimum_correlation{0.75F};          // the correlation floor
+    float maximum_frequency_offset_hz{120.0F}; // the carrier gate
+    std::size_t maximum_start_symbol{};        // the last start searched; 0 searches them all
 };
 
 struct BodyAcquisition
