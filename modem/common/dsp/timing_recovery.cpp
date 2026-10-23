@@ -33,12 +33,13 @@ belongs to the receiver. This file mentions no Body* type at all.
 #include <cmath>
 #include <complex>
 #include <cstddef>
+#include <numbers>
 #include <span>
 
 namespace modem::common
 {
 
-constexpr float pi = 3.14159265358979323846F;
+constexpr float pi = std::numbers::pi_v<float>;
 constexpr float two_pi = 2.0F * pi;
 
 // Wraps a phase to (-pi, pi]. The loop form handles any finite input.
@@ -79,7 +80,8 @@ Status make_root_raised_cosine_taps(std::size_t samples_per_symbol, float rollof
         else if (std::fabs(std::fabs(4.0F * rolloff * time) - 1.0F) < 1.0e-5F)
         {
             const auto angle = pi / (4.0F * rolloff);
-            value = (rolloff / rmath::sqrt(2.0F)) * ((1.0F + 2.0F / pi) * rmath::sin(angle) + (1.0F - 2.0F / pi) * rmath::cos(angle));
+            const float scale = rolloff / std::numbers::sqrt2_v<float>;
+            value = scale * ((1.0F + 2.0F / pi) * rmath::sin(angle) + (1.0F - 2.0F / pi) * rmath::cos(angle));
         }
         else
         {

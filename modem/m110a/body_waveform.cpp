@@ -133,7 +133,7 @@ static Status encode_coded_bits(BitSpan information_bits, const BodyBlockPlan& p
     {
         const auto pair = encoder.push(bit);
 
-        for (std::uint8_t repeat = 0U; repeat < plan.fec_pair_repetitions; ++repeat)
+        for (std::size_t repeat = 0U; repeat < plan.fec_pair_repetitions; ++repeat)
         {
             coded[written++] = pair.t1;
             coded[written++] = pair.t2;

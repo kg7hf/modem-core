@@ -6,18 +6,28 @@
 namespace modem::common
 {
 
-static CriticalErrorHandler critical_error_handler{};
+namespace
+{
+
+// Set once at start-up by the platform; constant-initialized, so no guard.
+CriticalErrorHandler& critical_error_handler() noexcept
+{
+    static CriticalErrorHandler handler{};
+    return handler;
+}
+
+} // namespace
 
 void set_critical_error_handler(CriticalErrorHandler handler) noexcept
 {
-    critical_error_handler = handler;
+    critical_error_handler() = handler;
 }
 
 [[noreturn]] void critical_error(Status status) noexcept
 {
-    if (critical_error_handler != nullptr)
+    if (critical_error_handler() != nullptr)
     {
-        critical_error_handler(status);
+        critical_error_handler()(status);
     }
 
 #if defined(__GNUC__) || defined(__clang__)

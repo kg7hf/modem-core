@@ -23,6 +23,7 @@
 
 #include <compare>
 #include <concepts>
+#include <numbers>
 
 namespace modem::common
 {
@@ -32,7 +33,7 @@ namespace decibel_detail
 
 [[nodiscard]] inline Real to_db_power(Real linear) noexcept
 {
-    return static_cast<Real>(10) * (rmath::log(linear) / rmath::log(static_cast<Real>(10)));
+    return static_cast<Real>(10) * (rmath::log(linear) / std::numbers::ln10_v<Real>);
 }
 
 [[nodiscard]] inline Real from_db_power(Real db) noexcept
