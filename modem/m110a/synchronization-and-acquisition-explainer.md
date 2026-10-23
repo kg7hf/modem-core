@@ -12,6 +12,10 @@ This note explains the receiver's second stage:
   `estimate_body_prefix_frequency_radians`, `body_prefix_correlation`,
   `characterize_body_candidate`, `body_candidate_is_valid`), public so a streaming
   receiver can test one position at a time instead of scanning a whole buffer.
+- The **earliest-path anchoring** inside it: on a channel with two paths each path forms a
+  group of its own, and the receiver anchors on the first path within the equalizer's
+  reach, not the strongest. Its diagnostics (`BodyAnchorDiagnostics`) and the reference's
+  own sidelobe model (`body_precursor_sidelobe_powers`) are public too.
 
 Two additions to the front end belong with this stage, because a receiver turns them on
 and off around acquisition: the **phase search** and the **rate integrator** in
@@ -19,8 +23,9 @@ and off around acquisition: the **phase search** and the **rate integrator** in
 `modem/m110a/audio-front-end-explainer.md`, sections 6 and 9, and walked through in Steps
 11 to 14 below.
 
-The unit tests are in `tests/acquisition_tests.cpp`, and the article series explains the
-design in Part 4, "Acquisition: finding the burst". Nothing here decodes a payload bit:
+The unit tests are in `tests/acquisition_tests.cpp` and `tests/first_path_tests.cpp`, and
+the article series explains the design in Part 4, "Acquisition: finding the burst", and
+Part 5, "The first path". Nothing here decodes a payload bit:
 the output is the reference the equalizer and the decoder start from.
 
 ---
@@ -50,9 +55,10 @@ wakes up in the middle of the preamble know exactly how far away the body is.
 
 The scan runs every start position through three gates, cheapest first (the carrier
 offset in range, the correlation over a floor, a valid mode and countdown), groups the
-survivors by the burst they describe, takes the group the most segments support, and lets
-every segment of the preamble vote on the mode and the boundary. The result is one
-`BodyAcquisition`.
+survivors by the burst they describe, takes the group the most segments support, moves the
+anchor to the earliest path of the same burst (a group the scan formed a few symbols
+earlier, or a path it never grouped, found across every segment), and lets every segment
+of the preamble vote on the mode and the boundary. The result is one `BodyAcquisition`.
 
 ---
 
@@ -71,6 +77,9 @@ The room is noisy, so you might mishear one countdown. That is fine: you heard m
 them, and they all have to agree on when the words start. You go with what most of them
 said.
 
+In a room with an echo you hear every jingle twice, a moment apart, and sometimes the echo
+is the louder one. You listen to the first: the echo only ever repeats it.
+
 ---
 
 ## 4. Where this module sits in the pipeline
@@ -87,13 +96,16 @@ said.
      │ one complex symbol per 2400-baud symbol (the on-time samples)
      ▼  acquire_body_preamble()                        THIS MODULE
   ┌──────────────────────────────────────────────────────────────────────┐
-  │ 1. scan_for_consensus   every start through three gates:            │
+  │ 1. scan_for_consensus   every start through three gates:             │
   │      estimate_body_prefix_frequency_radians   |carrier| <= 120 Hz    │
   │      body_prefix_correlation                  >= minimum_correlation │
   │      characterize_body_candidate              a valid mode/countdown │
   │    survivors grouped by the burst they describe                      │
   │ 2. strongest_group      the group the most segments support          │
-  │ 3. vote_mode_and_boundary  every segment votes on mode and boundary  │
+  │ 3. earliest_path_group  the same burst through an earlier path       │
+  │ 4. vote_mode_and_boundary  every segment votes on mode and boundary  │
+  │ 5. anchor_to_precursor_path  an earlier path no group formed for     │
+  │ 6. vote_mode_and_boundary  again, on the new anchor's segments       │
   └──────────────────────────────────────────────────────────────────────┘
      │ BodyAcquisition {preamble start, body start, carrier, phase, mode}
      ▼
@@ -113,11 +125,14 @@ said.
 
 | Name | Role |
 |---|---|
-| `BodyAcquisitionConfig` | The symbol rate (2400), the correlation floor (`minimum_correlation`, 0.75), the carrier gate (`maximum_frequency_offset_hz`, 120), and how far into the buffer a start may be (`maximum_start_symbol`, 0 for anywhere). |
-| `BodyAcquisition` | The result. The preamble's first symbol, the segment the decision was read from, the body's first symbol, the countdown read there, whether the preamble's start is inside the buffer, the carrier offset (Hz) and phase, the normalized correlation, and the mode (`recognition`). |
+| `BodyAcquisitionConfig` | The symbol rate (2400), the correlation floor (`minimum_correlation`, 0.75), the carrier gate (`maximum_frequency_offset_hz`, 120), how far into the buffer a start may be (`maximum_start_symbol`, 0 for anywhere), and the earliest-path anchoring: `anchor_earliest_path` (on) and its window, `anchor_minimum_path_delay_symbols` (7; the host's turbo decoder runs with 3) to `anchor_maximum_path_delay_symbols` (15). |
+| `BodyAcquisition` | The result. The preamble's first symbol, the segment the decision was read from, the body's first symbol, the countdown read there, whether the preamble's start is inside the buffer, the carrier offset (Hz) and phase, the normalized correlation, the mode (`recognition`), and the anchoring's diagnostics (`anchor`). |
+| `BodyAnchorDiagnostics` | What the precursor search saw and did: the profile at lags 0 to 15 as fractions of lag 0 (`precursor_powers`), the peaks at or above 1/8 and the earliest of them (`precursor_candidates`, `precursor_lag`, `precursor_fraction`), the segments summed, the segments the walk tried and what rejected each (`walk_rejected_frequency`, `_correlation`, `_invalid`, `_mode`), and whether the anchor moved and how far (`reanchored`, `reanchored_lag`). |
 | `BodyModeRecognition` | From `body_waveform.hpp`: `supported` with the data rate and interleave, `recognized_unsupported` (a legal pair of designators for a mode this modem does not implement), or `invalid`. |
-| `AcquisitionConsensus` (internal) | One group: the candidates that agree on the body's first symbol and the mode. It keeps a representative (the member with the **highest** correlation), the number of supporting segments, the sum of their correlations and the best one. |
+| `CandidateRecord` (internal) | What a group keeps of its representative: the start it was found at, its body's first symbol, its mode and its correlation. `representative_of()` rebuilds the whole member from the start, bit for bit; a whole `BodyAcquisition` carries the anchoring's diagnostics, and 32 of them would not fit the 4 KB stack bound. |
+| `AcquisitionConsensus` (internal) | One group: the candidates that agree on the body's first symbol and the mode. It keeps a representative (the member with the **highest** correlation, as a `CandidateRecord`), the number of supporting segments, the sum of their correlations and the best one. |
 | `ConsensusScan` (internal) | Up to 32 groups. A start that would open a 33rd is dropped. |
+| `PrecursorPeaks` (internal) | Up to four peaks of the precursor profile, earliest first. |
 
 ### One preamble segment
 
@@ -228,11 +243,25 @@ estimator's range ........... ±1200 Hz (±π rad per symbol); past it the estim
   not the earliest: the representative supplies the carrier estimate the receiver trains
   with, and a fade can push an early segment over the floor with a wrong one.
 
+### `representative_of` (internal)
+- A group's representative, whole: `evaluate_start()` at the start the scan found it at.
+  The function depends on nothing but its arguments, so the member comes back bit for bit.
+
 ### `strongest_group` (internal, Step 2)
 - The group with the most supporting segments; a tie goes to the larger correlation sum,
   then to the larger single correlation.
 
-### `vote_mode_and_boundary` (internal, Step 3)
+### `earliest_path_group` (internal, Step 3)
+- **50K view:** A group of the same mode whose body start comes 7 to 15 symbols before the
+  winner's is the same burst through an earlier path; the anchor moves to the earliest.
+- **Detailed view:** A start has to clear the correlation floor and read a valid mode and
+  countdown to join any group, so a second group a few symbols early is a second path,
+  not noise. The window's minimum follows the equalizer: its short geometry reaches 6
+  symbols ahead of its anchor, so a closer path is left to it; the host's turbo decoder
+  needs the first path even 2 ms (4.8 symbols) ahead and runs with 3.
+- **5th-grade view:** The same jingle heard twice; you take the first.
+
+### `vote_mode_and_boundary` (internal, Steps 4 and 6)
 - **50K view:** Every segment from the winner's on votes on the mode and the body start.
 - **Detailed view:** The winner's mode and countdown came from one segment's decode, and at
   low signal-to-noise one decode can be wrong. Every later segment carries the same
@@ -242,10 +271,49 @@ estimator's range ........... ±1200 Hz (±π rad per symbol); past it the estim
   something other than the winner, the majority's mode, body start and preamble start are
   adopted, and the winner's carrier estimate is kept.
 - **5th-grade view:** Going with what most of the countdowns said.
+- It runs twice: before the precursor search, so the search's mode test uses the
+  majority's mode, and after it, on the new anchor's segments. The anchoring's
+  diagnostics survive the correction.
+
+### `body_precursor_sidelobe_powers(reference, maximum_lag)`
+- **50K view:** The profile one clean path produces before its own lag 0: the prefix
+  correlating with itself, and with the end of the segment before it.
+- **Detailed view:** Every segment ends with channel symbol 0, whose chips are the bare
+  sync-randomizer values, so the tail before each prefix is known. The model shifts the
+  reference into that tail (its last 15 chips) and scores each lag as a path is scored,
+  nine 32-chip blocks added by power. A model of the prefix alone leaves a remainder,
+  largest at lag 14.
+
+### `precursor_peaks` (internal)
+- The profile's peaks at or above 1/8 of lag 0, earliest first, up to four. Peaks, not
+  lags: a path's power spills into the lags beside it, so the earliest lag over the floor
+  can be a symbol early, and a stronger or later path's sidelobes can clear the floor
+  ahead of the real path. Every peak is tried in turn.
+
+### `walk_to_earlier_path` (internal)
+- **50K view:** Tests a peak on the signal: from the winner's detected segment, shifted
+  back by the peak's lag, one segment at a time up to the body boundary.
+- **Detailed view:** Each shifted start gets its own carrier estimate (the winner's came
+  from the other path), the carrier gate, the correlation floor, and a valid read of the
+  same mode. The first segment that passes moves the anchor. The correlation is the test
+  that matters: the designators and countdown, read a few symbols early, still read
+  correctly, because the decode combines the signal over lags 0 to 15. A real path clears
+  the floor at its own start; a sidelobe does not.
+
+### `anchor_to_precursor_path` (internal, Step 5)
+- **50K view:** Finds an earlier path the scan formed no group for, because it faded
+  through the few segments the scan covers.
+- **Detailed view:** At each lag 0 to 15 before the anchor, the nine-block prefix
+  correlation's power with the anchor's carrier taken out, summed over every segment from
+  the winner's detected one to the body boundary; the reference's own sidelobes, scaled to
+  the anchor's power, subtracted; then the peaks, each walked in turn. Summing power over
+  segments is what lets a fading path register: its phase turns from segment to segment,
+  its power adds.
 
 ### `acquire_body_preamble(symbol_rate_input, config)`
-- Checks the request, takes the static reference, and runs the three steps. It returns
-  `unavailable` when no start passes all three gates.
+- Checks the request, takes the static reference, and runs the six steps. With
+  `anchor_earliest_path` off it returns the strongest group as the scan leaves it. It
+  returns `unavailable` when no start passes all three gates.
 
 ---
 
@@ -333,6 +401,26 @@ pulled in before symbol 1200: 17 of 20 plain, 20 of 20 with the phase search
                             +1000 ppm, type 2: 0 slipped, the integrator 6 ppm off
 ```
 
+### The first path (Part 5's steps)
+
+`first_path_demo` runs on the article's recordings: the "Hi" message through Table XX's
+two-path channels with pathsim, selected because each shows one situation (configure with
+`-DMODEM_ARTICLE_DATA=ON`). In short:
+
+```text
+fp1  300L, 5 ms 5 Hz, 7 dB  groups: the echo +12.0 (3 supporters, strongest), the direct
+                             path (1); without the anchoring the echo, with it the direct
+                             path, by an earlier group
+fp2  600L, 2 ms 1 Hz, 7 dB  the window from 7 stays on the echo (4.8 symbols, within the
+                             equalizer's reach); from 3 the precursor search moves 5 symbols
+fp3  300L, 5 ms 5 Hz, 7 dB  no group at the direct path; its peak at lag 12 (0.909); the
+                             walk rejects 2 segments at the floor and reads on the 3rd
+fp5  300L, 5 ms 5 Hz, 7 dB  the anchor on the direct path; the echo's sidelobe at lag 11
+                             (0.127); 23 segments walked, every one rejected; not moved
+fp4  600S, 2 ms, phases 0-19  the weak direct path at 16 of 20 phases
+fp6  600L, 2 ms, phases 0-19  at all 20 (the walk reads on it where 600S's cannot)
+```
+
 ---
 
 ## 8. Equations and formulas
@@ -366,7 +454,10 @@ preamble start:     detected_segment - (segments - D - 1) · Ns
 | One segment reads the wrong countdown or mode | Noise, at the lowest signal-to-noise the standard allows. | `vote_mode_and_boundary`: every segment votes. Step 9. |
 | A fade turns the phase within the prefix | The channel changes inside 120 ms. | The correlation adds nine block magnitudes, not one coherent sum. Step 3. |
 | A mode is recognized but not acquired | The designators are legal but this modem does not implement the mode (D1 7, D2 7 is 2400 bps secure voice). | `recognized_unsupported`; the candidate is invalid. Step 8. |
-| On a two-path channel the boundary is one echo late | The strongest group can be the later path. | Choosing the earliest path belongs with the equalizer, a later article. |
+| On a two-path channel the anchor is on the later path | The strongest group can be the echo: the paths trade places as they fade. | `earliest_path_group` (Step 3) and `anchor_to_precursor_path` (Step 5) move it to the first path 7 to 15 symbols earlier (3 to 15 for the host's turbo decoder). |
+| A peak in the precursor profile where nothing was sent | A later path's own sidelobe, 23 - d symbols ahead of the anchor for a path d symbols behind it, or a stronger path's sidelobes. | The walk tests each peak on the signal; a sidelobe fails the correlation floor or the carrier gate. |
+| A weak first path found at some arrival phases and not others | Its correlation is near the floor, and where the samples fall within a symbol decides. | Test every phase. A long preamble gives the walk more segments to try. |
+| Two routes tens of milliseconds apart (long path and short path) | Beyond the 15-symbol window, and beyond what the frame's 16 or 20 known symbols can follow. | The anchor stays on the strongest group; the other copy is interference. |
 | The front end hangs half a symbol off the peaks | The early-late detector's output is also zero there. | The phase search (front end), on while acquiring. Step 11. |
 | Symbols slip under a clock offset | A proportional loop needs a standing error for a standing correction. | The rate integrator (front end). Steps 12 to 14. |
 | A rich scan loses a group | More than 32 groups. | The 33rd is dropped; on a real channel the count stays small. |
@@ -383,6 +474,9 @@ preamble start:     detected_segment - (segments - D - 1) · Ns
 | `preamble_start_in_buffer` | False when the receiver woke up after the preamble began (Step 7). |
 | `recognition.state` | `supported`, `recognized_unsupported` or `invalid`. |
 | The `Status` | `invalid_argument` for a bad config or under one segment of input; `unavailable` when nothing passed the gates. |
+| `anchor.reanchored`, `anchor.reanchored_lag` | Whether the precursor search moved the anchor, and how far. An earlier group's move leaves `reanchored` false: compare with the result with `anchor_earliest_path` off. |
+| `anchor.precursor_powers`, `anchor.precursor_lag`, `anchor.precursor_fraction` | The profile before the anchor. A real path shows as a clear peak; the rest of the profile sits well under 1/8. |
+| `anchor.walk_segments` and the `walk_rejected_*` counts | How hard the walk looked, and which test rejected each segment. |
 
 Healthy: one match a segment, 480 symbols apart, correlations near 1, carrier estimates
 within a few hertz of each other, every segment voting for the same body start.
@@ -399,12 +493,18 @@ hertz, or votes split between body starts.
 3. `decode_channel_symbol` and `characterize_body_candidate`: how a match becomes a mode
    and a body start.
 4. `acquire_body_preamble` and its steps: `evaluate_start`, `scan_for_consensus`,
-   `strongest_group`, `vote_mode_and_boundary`. Each is one short function.
+   `strongest_group`, `earliest_path_group`, `vote_mode_and_boundary`, then
+   `anchor_to_precursor_path` with `body_precursor_sidelobe_powers`, `precursor_peaks` and
+   `walk_to_earlier_path`. Each is one short function.
 5. `acquisition_demo`, then `tests/walkthrough/acquisition_steps.cpp`: the demo runs the
    article's steps in order and prints every number it quotes, and each step is one
    function there. `tests/acquisition_tests.cpp` calls the same functions and checks what
    they return. Set a breakpoint in a step and step through it from either.
-6. `runner`: the receive chain end to end, on a message of your own or a WAV file.
+6. `first_path_demo` and `tests/walkthrough/first_path_steps.cpp`: Part 5's steps, on the
+   article's recordings; `tests/first_path_tests.cpp` checks every recording against the
+   expectations its manifest carries.
+7. `runner`: the receive chain end to end, on a message of your own or a WAV file; its
+   Part 5 line says where the strongest group put the body and what the anchoring did.
 
 ---
 
@@ -425,6 +525,15 @@ hertz, or votes split between body starts.
   peaks near 0.26). The walkthrough runs at 0.35, the streaming receiver's floor, because
   the floor is only the second of three gates: a start in noise must also pass the carrier
   gate and read as a valid segment.
+- **The window follows the equalizer.** From 7 symbols for the adaptive equalizer, from 3
+  for the host's turbo decoder. Measured on Table XX's 1200 bps row (2 ms, 1 Hz, 11 dB,
+  100 bursts through pathsim): from 3 the turbo decoder went from 71 exact bursts to 100,
+  the adaptive receiver gained nothing, and from 7 the anchor never moved.
+- **Peaks, every one in turn, and the walk decides.** Taking the earliest lag over the
+  floor anchors a symbol early; taking only the earliest peak loses the real path behind
+  a sidelobe. The walk's correlation test is what tells them apart.
+- **The sidelobe model includes the previous segment's tail.** Without it a remainder
+  stays in the profile, largest at lag 14.
 - **The primitives are the streaming API.** A receiver that tests one rolling position a
   step uses them directly, with the same conventions as the batch scan.
 

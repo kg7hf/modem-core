@@ -12,7 +12,8 @@
 //           the channel adds noise, a carrier offset, a clock offset, fading,
 //   Part 3  the front end turns the audio into one complex symbol per symbol,
 //   Part 4  acquisition finds the burst, reads its mode and countdown, and the
-//           front end's rate integrator learns the clock from there.
+//           front end's rate integrator learns the clock from there,
+//   Part 5  earliest-path anchoring moves the burst from an echo to the first path.
 //
 // Each article adds its stage, so the runner grows with the series. Give it a WAV file
 // instead (48 kHz, 16-bit or float) and it runs the receive stages on that: a recording

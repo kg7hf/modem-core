@@ -34,13 +34,15 @@ And the first stages of the receiver:
   symbol's sampling instant, in audio blocks of any size, with a phase search that frees a
   loop hung between the peaks and a rate integrator that learns the clock offset.
 - **Acquisition** (`m110a/synchronization`): finds a burst in noise by its preamble,
-  measures the carrier offset, reads the mode and the countdown, and works out where the
-  data begins.
+  measures the carrier offset, reads the mode and the countdown, works out where the data
+  begins, and anchors on the first path of a burst that arrives by two, not the strongest.
 - **Carrier tracking** (`common/dsp/timing_recovery`): the second-order loop that
   removes a carrier phase and frequency offset.
 - **The test bench** (`tests/`): Catch2 unit tests that run the real transmitter's
   signals through the receive stages, each one small enough to step through, and the
   runner, which runs every stage so far end to end on your own message or a WAV file.
+  Part 5's walkthrough runs on recordings published with the repository as a release
+  (configure with `-DMODEM_ARTICLE_DATA=ON`).
 
 The main stages have a detailed `*-explainer.md` next to their source; [docs/](docs/)
 lists them.
@@ -66,6 +68,7 @@ ctest --test-dir build    # the golden tests and the unit tests
 ./build/transmit_chain_tests "[walkthrough]" --order decl   # every number in Part 2
 ./build/front_end_demo                                      # Part 3, step by step
 ./build/acquisition_demo                                    # Part 4, step by step
+./build/first_path_demo                                     # Part 5, on the article's recordings (-DMODEM_ARTICLE_DATA=ON)
 ./build/runner "Hi" --snr 10 --carrier 37                   # every stage so far, on your message
 ```
 
@@ -73,7 +76,7 @@ In a clone made without `--recurse-submodules`, run `git submodule update --init
 once. To build only the modem and `tx_demo`, configure with `-DMODEM_BUILD_TESTS=OFF`.
 
 Prefer an editor? Open the folder in VS Code: the CMake presets, build and run tasks,
-and debug configurations for `tx_demo`, `front_end_demo`, `acquisition_demo`, the runner and
+and debug configurations for `tx_demo`, `front_end_demo`, `acquisition_demo`, `first_path_demo`, the runner and
 the transmit-chain tests are included, and the Testing panel lists every unit test to run or debug (see
 [CONTRIBUTING.md](CONTRIBUTING.md#vs-code)).
 
@@ -84,7 +87,7 @@ renders the whole burst to a 48 kHz WAV you can listen to.
 ## Quality
 
 CI builds on GCC and Clang (warnings-as-errors), runs golden tests that check every
-transmitted symbol and the start of the waveform and the receiver's unit
+transmitted symbol and every sample of the audio, and the receiver's unit
 tests, and checks formatting (clang-format), the C++ Core Guidelines (clang-tidy), cyclomatic
 complexity (lizard), coverage (gcov), and bounded stack usage (`-fstack-usage`).
 Each gate backs a claim the articles make. See [CONTRIBUTING.md](CONTRIBUTING.md)
@@ -93,10 +96,10 @@ to run any of them locally.
 ## What's coming
 
 The receiver is the hard half, and it is its own series; the audio front end and
-acquisition are its first stages. You will find the rest of the receiver **declared** in
+acquisition and the earliest-path anchor are its first stages. You will find the rest of the receiver **declared** in
 the headers here (the Viterbi decoder, the soft demapper, the block decoder) with their
 design notes intact, but not yet implemented; they arrive with the receiver articles,
-which cover the earliest-path anchor, the equalizer, and the burst decoder. This
+which cover the equalizer and the burst decoder next. This
 repository grows with the series, and so does the runner: each article adds its stage.
 
 ## License

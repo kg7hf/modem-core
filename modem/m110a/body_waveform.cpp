@@ -41,10 +41,10 @@ Teaching walkthrough: modem/m110a/body-waveform-and-scrambler-explainer.md
 */
 
 #include "modem/m110a/body_waveform.hpp"
+#include "modem/m110a/body_shaping_pulse.hpp"
 
 #include "modem/common/bits.hpp"
 #include "modem/common/constants.hpp"
-#include "modem/common/dsp/timing_recovery.hpp"
 #include "modem/common/fec/convolutional_k7.hpp"
 #include "modem/m110a/demapper.hpp"
 #include "modem/m110a/interleaver.hpp"
@@ -71,7 +71,6 @@ using ::modem::common::interleaver_for;
 using ::modem::common::IQSample;
 using ::modem::common::IQSampleSpan;
 using ::modem::common::low_bits;
-using ::modem::common::make_root_raised_cosine_taps;
 using ::modem::common::MutableBitSpan;
 using ::modem::common::MutableIQSampleSpan;
 using ::modem::common::MutableSampleSpan;
@@ -432,29 +431,25 @@ Status body_tribits_to_audio(BitSpan tribits, MutableSampleSpan output, float& c
 
 Status BodyAudioStreamModulator::initialize(float carrier_phase_radians) noexcept
 {
-    constexpr float shaping_rolloff = 0.25F;
-    const auto status = make_root_raised_cosine_taps(body_audio_samples_per_symbol, shaping_rolloff, mTaps);
-
-    if (!status.is_ok())
-    {
-        return status;
-    }
-
+    // The pulse (rolloff 0.25) is a table of exact values (body_shaping_pulse.hpp), not a
+    // design from the math library, so the audio is the same bits on every build.
+    const std::span<const float> pulse{body_shaping_pulse};
     float worst_polyphase_sum = 0.0F;
 
     for (std::size_t phase = 0U; phase < body_audio_samples_per_symbol; ++phase)
     {
         float phase_sum = 0.0F;
 
-        for (std::size_t tap = phase; tap < mTaps.size(); tap += body_audio_samples_per_symbol)
+        for (std::size_t tap = phase; tap < pulse.size(); tap += body_audio_samples_per_symbol)
         {
-            phase_sum += std::fabs(mTaps[tap]);
+            phase_sum += std::fabs(pulse[tap]);
         }
 
         worst_polyphase_sum = std::max(worst_polyphase_sum, phase_sum);
     }
 
-    mAmplitudeScale = 0.98F / worst_polyphase_sum;
+    constexpr float no_clip_peak = 0.98F; // the loudest sample any symbol sequence can reach
+    mAmplitudeScale = no_clip_peak / worst_polyphase_sum;
     // The starting phase is a whole number of 2 pi / 80 steps (0, or a value returned by carrier_phase_radians()).
     // Table entry n holds phase 3n steps, so the entry for u steps is u times the inverse of 3 mod 80.
     constexpr auto period = narrow<std::int64_t>(body_carrier_period_samples);
@@ -505,6 +500,8 @@ Status BodyAudioStreamModulator::render_window(BitSpan symbols, std::size_t firs
     constexpr auto samples_per_symbol = body_audio_samples_per_symbol;
     constexpr auto half_span = body_audio_shaping_span_symbols * body_audio_samples_per_symbol;
     const auto first_output_sample = first_output_symbol * samples_per_symbol;
+    const std::span<const float> pulse{body_shaping_pulse};
+    const std::span<const IQSample> carrier{body_carrier_table};
 
     for (std::size_t output_index = 0U; output_index < required_samples; ++output_index)
     {
@@ -522,13 +519,13 @@ Status BodyAudioStreamModulator::render_window(BitSpan symbols, std::size_t firs
         {
             const auto tap = window_output_index + half_span - symbol * samples_per_symbol;
 
-            if (tap < mTaps.size())
+            if (tap < pulse.size())
             {
-                baseband += psk8_symbol(symbols[symbol]) * mTaps[tap];
+                baseband += psk8_symbol(symbols[symbol]) * pulse[tap];
             }
         }
 
-        output[output_index] = mAmplitudeScale * std::real(baseband * body_carrier_table[mCarrierIndex]);
+        output[output_index] = mAmplitudeScale * std::real(baseband * carrier[mCarrierIndex]);
 
         if (++mCarrierIndex == body_carrier_period_samples)
         {

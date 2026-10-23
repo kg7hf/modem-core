@@ -23,7 +23,8 @@
 // adds what the air does to it; Part 3's front end turns the audio into symbols; Part 4's
 // acquisition finds the burst in them with the phase search on, reads its mode and
 // countdown, and from the first candidate the receiver turns the search off and lets the
-// front end's rate integrator learn the clock. Each article adds its stage here.
+// front end's rate integrator learn the clock; Part 5's earliest-path anchoring decides which
+// path the burst is anchored on. Each article adds its stage here.
 // run_chain() returns what every stage found, print() shows it, and runner_tests checks
 // the same report.
 // =============================================================================
@@ -91,6 +92,18 @@ struct AcquisitionReport
     std::optional<GridReport> grid{}; // the committed loop, a generated burst only
 };
 
+// Part 5: which path acquisition anchored the burst on. Acquisition once more without the
+// earliest-path anchoring gives the strongest group as the scan left it; Part 4's result is the
+// anchored one.
+struct FirstPathReport
+{
+    std::optional<std::size_t> strongest_body{}; // the strongest group's body boundary
+    std::size_t anchored_body{};
+    bool precursor_search{}; // the precursor search moved it (otherwise an earlier group did)
+    std::size_t precursor_lag{};
+    float precursor_fraction{};
+};
+
 struct ChainReport
 {
     ChainSpec spec{};
@@ -98,6 +111,7 @@ struct ChainReport
     std::size_t lead_samples{}; // line before the burst, for a generated burst
     FrontEndReport front_end{};
     AcquisitionReport acquisition{};
+    std::optional<FirstPathReport> first_path{};
 };
 
 [[nodiscard]] modem::common::Result<ChainReport> run_chain(const ChainSpec& spec);

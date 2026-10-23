@@ -1,0 +1,10 @@
+{
+  "schema": "modem.article-pack-release/1",
+  "package_id": "first-path-v1",
+  "url": "https://github.com/kg7hf/modem-core/releases/download/testdata-first-path-v1/testdata-first-path-v1.zip",
+  "archive_bytes": 5962350,
+  "archive_sha256": "ea23f7194873ae088105322baea529d82a0fa5179fa4912b129a745874b2438c",
+  "root": "first-path-v1",
+  "cases_schema": "modem.first-path-cases/1",
+  "cases_sha256": "f2318602f40128597252dea10f938d8b71c9ebd25a84a5990a3536c0c6a77254"
+}

@@ -29,23 +29,27 @@ segments. The first 288 chips of each segment are a fixed acquisition prefix.
 This file correlates the incoming samples against that known prefix to find the
 burst, estimates the carrier offset differentially, decodes the D1/D2 mode
 designators and the C1/C2/C3 countdown, and back-computes where the body starts.
-It groups the segments that agree, and lets every segment vote on the mode and
-the boundary, so one low-SNR mis-decode cannot mis-frame training.
+It groups the segments that agree, anchors on the earliest path of the burst
+(on a multipath channel each path forms a group of its own), and lets every
+segment vote on the mode and the boundary, so one low-SNR mis-decode cannot
+mis-frame training.
 
 5th-GRADE VERSION
 -----------------
 A friend always sings the same jingle before a secret message. Listen for the
 jingle; when you hear it clearly you learn it is starting, how high their voice
 is (carrier frequency), which code they are using (mode), and a countdown to the
-real words.
+real words. In a room with an echo you hear the jingle twice; listen to the
+first one.
 
 WORKED EXAMPLE / DEEP DIVE
 --------------------------
 The full step-by-step walkthrough - with the demo's own numbers, equations,
 fading-failure modes, and debugging signals - lives in the standalone explainer:
     modem/m110a/synchronization-and-acquisition-explainer.md
-Explained in the article series, Part 4 (acquisition: finding the burst); its
-unit tests are tests/acquisition_tests.cpp.
+Explained in the article series, Part 4 (acquisition: finding the burst) and
+Part 5 (the first path); their unit tests are tests/acquisition_tests.cpp and
+tests/first_path_tests.cpp.
 
 HIGH-LEVEL PASS THROUGH THIS FILE
 ---------------------------------
@@ -54,8 +58,9 @@ HIGH-LEVEL PASS THROUGH THIS FILE
  3. body_prefix_correlation()                segmented NONCOHERENT match score.
  4. decode_channel_symbol()                  8-code + echo-combining symbol decode.
  5. characterize_body_candidate()            D1/D2 + countdown -> body boundary.
- 6. acquire_body_preamble()                  scan -> consensus -> vote, one named
-                                             function a step.
+ 6. acquire_body_preamble()                  scan -> consensus -> earliest-path
+                                             re-anchor -> vote -> precursor walk
+                                             -> vote, one named function a step.
 ================================================================================
 */
 
@@ -96,6 +101,7 @@ constexpr std::size_t first_segment_symbols = body_preamble_segment_symbols;
 // Every preamble channel symbol is one of eight orthogonal 32-chip codes.
 constexpr std::size_t channel_symbol_chips = 32U;
 constexpr std::uint8_t channel_symbol_codes = 8U;
+constexpr std::size_t prefix_blocks = prefix_symbols / channel_symbol_chips;
 // Where the designators and the countdown sit among a segment's channel symbols.
 constexpr std::size_t d1_position = 9U;
 constexpr std::size_t d2_position = 10U;
@@ -426,13 +432,31 @@ bool body_candidate_is_valid(const BodyAcquisition& candidate) noexcept
 //                                valid mode and countdown), and the survivors
 //                                grouped by the transmission they describe.
 //   2. strongest_group           the group the most segments support.
-//   3. vote_mode_and_boundary    every segment votes on the mode and boundary.
+//   3. earliest_path_group       (anchor) the same burst through an earlier path.
+//   4. vote_mode_and_boundary    every segment votes on the mode and boundary.
+//   5. anchor_to_precursor_path  (anchor) an earlier path the scan never saw.
+//   6. vote_mode_and_boundary    again, on the new anchor's segments.
+// Steps 3 to 6 run with anchor_earliest_path, the default; without it the scan
+// returns the strongest group as it stands (the acquisition Part 4 published).
 // -----------------------------------------------------------------------------
+
+// What a group keeps of its representative, the member with the best correlation: what the
+// grouping compares, and the start the scan found it at. evaluate_start() depends on nothing
+// else, so representative_of() rebuilds the whole member from that start, bit for bit. A
+// whole BodyAcquisition carries the anchoring's diagnostics, and 32 of them would put the
+// scan's table past the stack bound.
+struct CandidateRecord
+{
+    std::size_t start{};
+    std::size_t first_body_symbol{};
+    BodyModeRecognition recognition{};
+    float normalized_correlation{};
+};
 
 // Candidates that describe the same transmission: the same body boundary and mode.
 struct AcquisitionConsensus
 {
-    BodyAcquisition representative{};
+    CandidateRecord representative{};
     std::size_t supporting_segments{};
     float correlation_sum{};
     float best_correlation{};
@@ -445,12 +469,13 @@ struct ConsensusScan
     std::size_t count{};
 };
 
-static bool same_mode(const BodyAcquisition& first, const BodyAcquisition& second) noexcept
+// Both work on a whole BodyAcquisition and on a group's CandidateRecord.
+template <typename First, typename Second> static bool same_mode(const First& first, const Second& second) noexcept
 {
     return first.recognition.mode.data_rate == second.recognition.mode.data_rate && first.recognition.mode.interleave == second.recognition.mode.interleave;
 }
 
-static bool same_transmission(const BodyAcquisition& first, const BodyAcquisition& second) noexcept
+template <typename First, typename Second> static bool same_transmission(const First& first, const Second& second) noexcept
 {
     return first.first_body_symbol == second.first_body_symbol && same_mode(first, second);
 }
@@ -535,7 +560,8 @@ static ConsensusScan scan_for_consensus(IQSampleSpan input, IQSampleSpan referen
         // same-group member decoded exactly).
         if (group.supporting_segments == 0U || candidate->normalized_correlation > group.representative.normalized_correlation)
         {
-            group.representative = *candidate;
+            group.representative =
+                CandidateRecord{.start = start, .first_body_symbol = candidate->first_body_symbol, .recognition = candidate->recognition, .normalized_correlation = candidate->normalized_correlation};
         }
 
         ++group.supporting_segments;
@@ -544,6 +570,12 @@ static ConsensusScan scan_for_consensus(IQSampleSpan input, IQSampleSpan referen
     }
 
     return scan;
+}
+
+// A group's representative, whole: evaluate_start() at the start the scan found it at.
+static BodyAcquisition representative_of(IQSampleSpan input, IQSampleSpan reference, const AcquisitionConsensus& group, const BodyAcquisitionConfig& config) noexcept
+{
+    return evaluate_start(input, group.representative.start, reference, config).value_or(BodyAcquisition{});
 }
 
 // Step 2: the group with the most supporting segments; a tie goes to the larger
@@ -567,16 +599,46 @@ static std::size_t strongest_group(const ConsensusScan& scan) noexcept
     return best_group;
 }
 
-// Step 3: consensus over the whole preamble, mode AND body boundary.
+// Step 3: a second consensus group of the same mode whose body
+// boundary precedes the winner's by at most one path delay is the same
+// transmission seen through an earlier path (a false-position candidate
+// cannot clear minimum_correlation on the 288-chip prefix, so any such
+// group is a genuine path). Anchoring on the earliest keeps every other
+// path as postcursor energy the feedback taps and the delay-spread
+// estimator can see.
+static std::size_t earliest_path_group(const ConsensusScan& scan, std::size_t chosen_group, const BodyAcquisitionConfig& config) noexcept
+{
+    const auto& chosen = scan.groups[chosen_group].representative;
+    auto earliest_group = chosen_group;
+
+    for (std::size_t group = 0U; group < scan.count; ++group)
+    {
+        const auto& candidate = scan.groups[group].representative;
+        const auto& earliest = scan.groups[earliest_group].representative;
+
+        if (same_mode(candidate, chosen) && candidate.first_body_symbol < earliest.first_body_symbol &&
+            chosen.first_body_symbol - candidate.first_body_symbol <= config.anchor_maximum_path_delay_symbols &&
+            chosen.first_body_symbol - candidate.first_body_symbol >= config.anchor_minimum_path_delay_symbols)
+        {
+            earliest_group = group;
+        }
+    }
+
+    return earliest_group;
+}
+
+// Steps 4 and 6: consensus over the whole preamble, mode AND body boundary.
 // The mode designators and the countdown come from one segment's decode at the
 // lowest SNR the standard allows; a single mis-decode (measured at 75L: a wrong
 // mode, or a countdown two segments off -> preamble training on a mis-framed
 // reference, residual ~1.0, whole payload lost) is invisible to a consensus
-// scan that covers only the first two or three segments, as a streaming
-// receiver's does when it commits early. Every later segment
+// scan that covers only the first two or three segments, as a receiver's does
+// when it limits the starts it tests (maximum_start_symbol). Every later segment
 // carries the same designators and a consistent boundary, so decode them all
-// from the winner's segment on and let the majority rule; segments past the true
-// boundary decode as invalid and abstain.
+// from the current anchor and let the majority rule; segments past the true
+// boundary decode as invalid and abstain. Run before the re-anchor (so the
+// re-anchor's mode test uses the majority mode, not a mis-decode) and again
+// after it (on the new anchor's segments).
 static BodyAcquisition vote_mode_and_boundary(IQSampleSpan input, IQSampleSpan reference, const BodyAcquisition& current, const BodyAcquisitionConfig& config) noexcept
 {
     struct BoundaryVote
@@ -644,24 +706,285 @@ static BodyAcquisition vote_mode_and_boundary(IQSampleSpan input, IQSampleSpan r
         return current;
     }
 
-    // The majority disagrees with the winner: keep the winner's frequency but
-    // adopt the majority mode, boundary and the preamble start they imply.
+    // The majority disagrees with the anchored winner: keep the winner's anchor
+    // (its path, its frequency) but adopt the majority mode, boundary and the
+    // preamble start they imply.
     auto corrected = boundaries[best].representative;
     corrected.frequency_offset_hz = current.frequency_offset_hz;
+    // The anchor diagnostics describe the winner's search, not the majority's
+    // probe: they survive the correction.
+    corrected.anchor = current.anchor;
     return corrected;
+}
+
+// Structural sidelobes of the main path at negative lags: the prefix reference
+// shifted INTO the previous segment's tail. That tail is known - every segment
+// ends with channel symbol 0 (an all-zero chip pattern, i.e. the bare
+// sync-randomizer tribits at phases 17..31 for the last fifteen chips, since a
+// segment consumes a whole multiple of the 32-entry sync sequence) - and its
+// chips coincide with the prefix's own first block at several lags, which a
+// prefix-only model misses (it leaves the most at lag 14). Model the tail
+// exactly so the subtraction is honest: Lags - 1 chips of it, the last fifteen
+// for lags up to 15.
+template <std::size_t Lags> static std::array<float, Lags> prefix_sidelobe_powers(IQSampleSpan reference, std::size_t maximum_lag) noexcept
+{
+    static_assert(Lags >= 1U && Lags - 1U <= channel_symbol_chips, "the tail is at most the closing channel symbol");
+    constexpr std::size_t tail_chips = Lags - 1U;
+    std::array<IQSample, tail_chips + prefix_symbols> extended_reference{};
+    SyncRandomizer tail_randomizer;
+
+    for (std::size_t skip = 0U; skip < channel_symbol_chips - tail_chips; ++skip)
+    {
+        tail_randomizer.advance();
+    }
+
+    for (std::size_t chip = 0U; chip < tail_chips; ++chip)
+    {
+        extended_reference[chip] = psk8_symbol(tribit_add(body_channel_symbol_tribit(0U, channel_symbol_chips - tail_chips + chip), tail_randomizer.next_tribit()));
+    }
+
+    for (std::size_t index = 0U; index < prefix_symbols; ++index)
+    {
+        extended_reference[tail_chips + index] = reference[index];
+    }
+
+    std::array<float, Lags> sidelobe_powers{};
+
+    for (std::size_t lag = 0U; lag <= std::min(maximum_lag, tail_chips); ++lag)
+    {
+        for (std::size_t block = 0U; block < prefix_blocks; ++block)
+        {
+            IQSample correlation{};
+
+            for (std::size_t chip = 0U; chip < channel_symbol_chips; ++chip)
+            {
+                const auto index = block * channel_symbol_chips + chip;
+                correlation += extended_reference[tail_chips + index - lag] * std::conj(reference[index]);
+            }
+
+            sidelobe_powers[lag] += std::norm(correlation);
+        }
+    }
+
+    return sidelobe_powers;
+}
+
+std::array<float, 16U> body_precursor_sidelobe_powers(IQSampleSpan reference, std::size_t maximum_lag) noexcept
+{
+    return prefix_sidelobe_powers<16U>(reference, maximum_lag);
+}
+
+struct PrecursorPeaks
+{
+    std::array<std::size_t, 4U> lags{};
+    std::size_t count{};
+};
+
+// The significant PEAKS, earliest first (largest lag down to the minimum), not
+// merely the lags above the threshold: the pulse-shaping tails put a -8 dB
+// sidelobe one symbol either side of a real path, which clears the 12.5 % floor
+// and, taken as "earlier", anchors one symbol off - every re-characterization
+// then fails the correlation floor and the burst keeps its echo anchor. Every
+// qualifying peak is tried in turn, because a marginal spurious peak far out
+// can clear the floor ahead of the genuine path (a stronger path's own
+// sidelobes, or a later path's, 23 - d symbols ahead of the anchor for a path
+// d symbols behind it), and the walk is the test that tells them apart.
+static PrecursorPeaks precursor_peaks(const std::array<float, 16U>& precursor_powers, std::size_t maximum_lag, std::size_t minimum_lag) noexcept
+{
+    constexpr float significant_path_fraction = 0.125F;
+    PrecursorPeaks peaks{};
+
+    for (auto lag = maximum_lag; lag >= minimum_lag && peaks.count < peaks.lags.size(); --lag)
+    {
+        const auto before = lag + 1U <= maximum_lag ? precursor_powers[lag + 1U] : 0.0F;
+        const auto after = precursor_powers[lag - 1U];
+
+        if (precursor_powers[lag] >= significant_path_fraction * precursor_powers[0] && precursor_powers[lag] > 0.0F && precursor_powers[lag] >= before && precursor_powers[lag] >= after)
+        {
+            peaks.lags[peaks.count++] = lag;
+        }
+    }
+
+    return peaks;
+}
+
+// Re-decode the designators and countdown on the earlier path. The precursor
+// path may itself be faded through the segment the consensus scan anchored on
+// (that is often why it never formed a group), so walk forward one segment at a
+// time and keep the first segment whose decode is valid for the same mode;
+// characterize_body_candidate back-extrapolates the preamble start and the body
+// boundary from that segment's countdown. The walk starts at the first segment
+// the lag reaches back from: a detection on the very first segment cannot shift
+// earlier, its successors can. True when the winner moved to the earlier path.
+static bool walk_to_earlier_path(IQSampleSpan input, IQSampleSpan reference, std::size_t earliest_lag, std::size_t segment_limit, const BodyAcquisitionConfig& config, BodyAcquisition& winner) noexcept
+{
+    auto walk_start = winner.detected_segment_symbol;
+
+    while (walk_start < earliest_lag)
+    {
+        walk_start += first_segment_symbols;
+    }
+
+    for (std::size_t segment_start = walk_start - earliest_lag; segment_start + first_segment_symbols <= segment_limit; segment_start += first_segment_symbols)
+    {
+        // Each shifted segment is evaluated exactly as the acquisition scan
+        // evaluates a candidate start: its own differential frequency estimate
+        // (the winner's estimate came from the other path and can be
+        // fading-biased by tens of hertz, which alone drops a strong path below
+        // the correlation floor), then the prefix correlation.
+        const auto segment_frequency_radians = estimate_body_prefix_frequency_radians(input, segment_start, reference);
+        const auto segment_frequency_hz = segment_frequency_radians * config.symbol_rate_hz / two_pi;
+        ++winner.anchor.walk_segments;
+
+        if (std::fabs(segment_frequency_hz) > config.maximum_frequency_offset_hz)
+        {
+            ++winner.anchor.walk_rejected_frequency;
+            continue;
+        }
+
+        BodyAcquisition shifted{};
+        shifted.first_preamble_symbol = segment_start;
+        shifted.frequency_offset_hz = segment_frequency_hz;
+        float phase{};
+        shifted.normalized_correlation = body_prefix_correlation(input, segment_start, reference, segment_frequency_radians, phase);
+        shifted.carrier_phase_radians = phase;
+
+        // The designator/countdown decode combines echoes over lags 0..15, so it
+        // validates any anchor up to a path delay EARLY as readily as the true
+        // one; the prefix correlation at the shifted start is the discriminating
+        // test (a genuine path clears the acquisition floor there, a phantom
+        // does not). A faded segment simply fails it and the walk moves on.
+        if (shifted.normalized_correlation < config.minimum_correlation)
+        {
+            ++winner.anchor.walk_rejected_correlation;
+            continue;
+        }
+
+        shifted = characterize_body_candidate(input, shifted, config);
+
+        if (!body_candidate_is_valid(shifted))
+        {
+            ++winner.anchor.walk_rejected_invalid;
+            continue;
+        }
+
+        if (!same_mode(shifted, winner))
+        {
+            ++winner.anchor.walk_rejected_mode;
+            continue;
+        }
+
+        const auto diagnostics = winner.anchor;
+        winner = shifted;
+        winner.anchor = diagnostics;
+        winner.anchor.reanchored = true;
+        winner.anchor.reanchored_lag = earliest_lag;
+        return true;
+    }
+
+    return false;
+}
+
+// Step 5: the consensus scan covers only the first few segments, and a direct
+// path faded during exactly those segments leaves no group of its own even
+// though it carries half the burst energy. Search for an earlier path across
+// EVERY preamble segment from the winner's detected segment to its body
+// boundary: the noncoherent multi-segment prefix correlation at negative lags
+// (the method of the delay-spread estimate later in the series, mirrored to
+// the precursor side), with the reference's own period-8 autocorrelation sidelobes removed. A
+// significant precursor path moves the anchor to it and re-decodes the
+// designators and countdown there, where the former anchor is combinable
+// postcursor energy. The search and its outcome are kept in winner.anchor.
+static void anchor_to_precursor_path(IQSampleSpan input, IQSampleSpan reference, const BodyAcquisitionConfig& config, BodyAcquisition& winner) noexcept
+{
+    const auto maximum_lag = std::min<std::size_t>(config.anchor_maximum_path_delay_symbols, 15U);
+    const auto frequency_radians = winner.frequency_offset_hz * two_pi / config.symbol_rate_hz;
+    std::array<IQSample, prefix_symbols> rotated_reference{};
+
+    for (std::size_t index = 0U; index < prefix_symbols; ++index)
+    {
+        rotated_reference[index] = std::conj(reference[index] * std::polar(1.0F, frequency_radians * as_real(index)));
+    }
+
+    const auto sidelobe_powers = body_precursor_sidelobe_powers(reference, maximum_lag);
+    std::array<float, 16U> precursor_powers{};
+    const auto segment_limit = std::min(input.size(), winner.first_body_symbol);
+    std::size_t segments_used = 0U;
+
+    for (std::size_t segment_start = winner.detected_segment_symbol; segment_start + prefix_symbols <= segment_limit; segment_start += first_segment_symbols)
+    {
+        if (segment_start < maximum_lag)
+        {
+            continue;
+        }
+
+        ++segments_used;
+
+        for (std::size_t lag = 0U; lag <= maximum_lag; ++lag)
+        {
+            float power = 0.0F;
+
+            for (std::size_t block = 0U; block < prefix_blocks; ++block)
+            {
+                IQSample correlation{};
+
+                for (std::size_t chip = 0U; chip < channel_symbol_chips; ++chip)
+                {
+                    const auto index = block * channel_symbol_chips + chip;
+                    correlation += input[segment_start - lag + index] * rotated_reference[index];
+                }
+
+                power += std::norm(correlation);
+            }
+
+            precursor_powers[lag] += power;
+        }
+    }
+
+    winner.anchor = BodyAnchorDiagnostics{};
+    winner.anchor.precursor_segments = segments_used;
+
+    if (segments_used == 0U)
+    {
+        return;
+    }
+
+    for (std::size_t lag = 1U; lag <= maximum_lag; ++lag)
+    {
+        precursor_powers[lag] = std::max(0.0F, precursor_powers[lag] - (sidelobe_powers[lag] / sidelobe_powers[0]) * precursor_powers[0]);
+    }
+
+    for (std::size_t lag = 0U; lag <= maximum_lag; ++lag)
+    {
+        winner.anchor.precursor_powers[lag] = precursor_powers[0] > 0.0F ? precursor_powers[lag] / precursor_powers[0] : 0.0F;
+    }
+
+    const auto minimum_lag = std::max<std::size_t>(3U, config.anchor_minimum_path_delay_symbols);
+    const auto peaks = precursor_peaks(precursor_powers, maximum_lag, minimum_lag);
+    winner.anchor.precursor_candidates = peaks.count;
+    winner.anchor.precursor_lag = peaks.count != 0U ? peaks.lags[0] : 0U;
+    winner.anchor.precursor_fraction = peaks.count != 0U && precursor_powers[0] > 0.0F ? precursor_powers[peaks.lags[0]] / precursor_powers[0] : 0.0F;
+
+    for (std::size_t peak = 0U; peak < peaks.count; ++peak)
+    {
+        if (walk_to_earlier_path(input, reference, peaks.lags[peak], segment_limit, config, winner))
+        {
+            return;
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
 // acquire_body_preamble  (the main acquisition entry point)
 // -----------------------------------------------------------------------------
-// 50K view: Scan every candidate start, keep the ones past the frequency,
-//   correlation and decode gates, group them by which transmission they describe
-//   (consensus voting), pick the strongest group, then repair single-segment
-//   mis-decodes with a whole-preamble majority vote.
+// 50K view: Scan every candidate start, keep the ones past the frequency and
+//   correlation gates, group them by which transmission they describe (consensus
+//   voting), pick the strongest group, then re-anchor to the EARLIEST path and
+//   repair single-segment mis-decodes with a whole-preamble majority vote.
 // Detailed view: the numbered steps above, in order.
 // 5th-grade view: Listen everywhere, keep the clear catches, group the agreeing
-//   ones, pick the strongest, and let the other segments outvote a segment that
-//   misheard the countdown.
+//   ones, pick the strongest, make sure you locked the FIRST voice not an echo,
+//   and let the other segments outvote a segment that misheard the countdown.
 // -----------------------------------------------------------------------------
 Result<BodyAcquisition> acquire_body_preamble(IQSampleSpan symbol_rate_input, const BodyAcquisitionConfig& config) noexcept
 {
@@ -681,8 +1004,17 @@ Result<BodyAcquisition> acquire_body_preamble(IQSampleSpan symbol_rate_input, co
         return Status{StatusCode::unavailable, "body preamble countdown not acquired"};
     }
 
-    const auto& strongest = scan.groups[strongest_group(scan)].representative;
-    return vote_mode_and_boundary(symbol_rate_input, reference, strongest, config);
+    const auto strongest = strongest_group(scan);
+
+    if (!config.anchor_earliest_path)
+    {
+        return representative_of(symbol_rate_input, reference, scan.groups[strongest], config);
+    }
+
+    const auto earliest = representative_of(symbol_rate_input, reference, scan.groups[earliest_path_group(scan, strongest, config)], config);
+    auto winner = vote_mode_and_boundary(symbol_rate_input, reference, earliest, config);
+    anchor_to_precursor_path(symbol_rate_input, reference, config, winner);
+    return vote_mode_and_boundary(symbol_rate_input, reference, winner, config);
 }
 
 } // namespace modem::m110a

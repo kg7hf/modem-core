@@ -550,8 +550,7 @@ public:
     [[nodiscard]] Status render_window(BitSpan symbols, std::size_t first_output_symbol, std::size_t output_symbols, MutableSampleSpan output) noexcept;
 
 private:
-    std::array<float, body_audio_shaping_taps> mTaps{};
-    float mAmplitudeScale{};
+    float mAmplitudeScale{};     // the shaping pulse is a constant table (body_shaping_pulse.hpp)
     std::size_t mCarrierIndex{}; // sample number mod body_carrier_period_samples
     bool mInitialized{};
 };

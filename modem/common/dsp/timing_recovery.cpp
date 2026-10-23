@@ -7,8 +7,10 @@ timing_recovery.cpp - the waveform-neutral demodulation front end
 ================================================================================
 WHAT THIS IS
 ------------
-make_root_raised_cosine_taps  - the energy-normalized RRC pulse the transmitter
-                                shapes with and the receiver matches against.
+make_root_raised_cosine_taps  - the energy-normalized RRC pulse the receivers match
+                                against and the Appendix D transmitter shapes with
+                                (the 110A transmitter's 0.25 pulse is a table of exact
+                                values, m110a/body_shaping_pulse.hpp).
 matched_filter_and_recover_timing - matched filter plus symbol-timing recovery
                                 over a sample stream; returns the symbol decisions
                                 and where the loop left the timing phase.
