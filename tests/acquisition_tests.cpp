@@ -101,7 +101,7 @@ ChannelSpec noisy(float snr_db, std::int32_t carrier_offset_hz, std::uint64_t se
 
 // --- The preamble ---
 
-TEST_CASE("The 600L preamble: 24 segments of nine fixed symbols, the mode and a countdown", "[acquisition][preamble][walkthrough]")
+TEST_CASE("The 600L preamble: 24 segments of nine fixed symbols with the mode and a countdown", "[acquisition][preamble][walkthrough]")
 {
     const auto step = acquisition_steps::preamble_segments();
     REQUIRE(step.error().is_ok());
@@ -120,7 +120,7 @@ TEST_CASE("The 600L preamble: 24 segments of nine fixed symbols, the mode and a 
 
 // --- The reference ---
 
-TEST_CASE("The reference is the first 288 symbols of every segment, bit for bit", "[acquisition][reference][walkthrough]")
+TEST_CASE("The reference is the first 288 symbols of every segment bit for bit", "[acquisition][reference][walkthrough]")
 {
     const auto step = acquisition_steps::prefix_reference();
     REQUIRE(step.error().is_ok());
@@ -147,7 +147,7 @@ TEST_CASE("A fade that turns the phase cancels one long sum but not nine block s
     CHECK(std::fabs(step.flipped_blocks - 1.0F) < 1.0e-5F);
 }
 
-TEST_CASE("A noisy burst: a match at the start of each segment, each with the carrier offset", "[acquisition][correlation][walkthrough]")
+TEST_CASE("A noisy burst: a match at the start of each segment and each with the carrier offset", "[acquisition][correlation][walkthrough]")
 {
     const auto step = acquisition_steps::correlation_comb();
     REQUIRE(step.error().is_ok());
@@ -344,7 +344,7 @@ TEST_CASE("In noise the integrator takes far longer than 2880 symbols to learn t
     CHECK(worst_noisy_error > 300.0F);
 }
 
-TEST_CASE("On a long burst the mean rate tells no clock from a real one, where the momentary rate cannot", "[acquisition][clock][walkthrough]")
+TEST_CASE("On a long burst the mean rate tells no clock from a real one where the momentary rate cannot", "[acquisition][clock][walkthrough]")
 {
     const auto step = acquisition_steps::long_burst_rule();
     REQUIRE(step.error().is_ok());
@@ -396,7 +396,7 @@ TEST_CASE("Every mode is found and read at 10 dB with the carrier 75 Hz off", "[
     CHECK(std::fabs(a.frequency_offset_hz - as_real(offset_hz)) < 5.0F);
 }
 
-TEST_CASE("The carrier gate: 110 Hz off is found, 150 Hz off is not", "[acquisition][carrier]")
+TEST_CASE("The carrier gate: 110 Hz off is found and 150 Hz off is not", "[acquisition][carrier]")
 {
     const auto offset_hz = GENERATE(-150, -110, 110, 150);
     CAPTURE(offset_hz);

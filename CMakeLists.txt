@@ -95,11 +95,15 @@ endif()
 add_library(modem_test_bench STATIC
     tests/support/front_end_harness.cpp
     tests/support/impairments.cpp
+    tests/support/manifest_json.cpp
     tests/support/receive_chain.cpp
     tests/support/test_channel.cpp
     tests/support/test_waveform.cpp
     tests/support/wav_file.cpp
     tests/walkthrough/acquisition_steps.cpp
+    tests/walkthrough/first_path_cases.cpp
+    tests/walkthrough/first_path_observe.cpp
+    tests/walkthrough/first_path_steps.cpp
     tests/walkthrough/front_end_steps.cpp)
 target_link_libraries(modem_test_bench PUBLIC modem_core)
 if(NOT MODEM_PRINT_LINKS)
@@ -115,6 +119,20 @@ modem_copy_runtime(front_end_demo)
 add_executable(acquisition_demo tests/acquisition_demo.cpp)
 target_link_libraries(acquisition_demo PRIVATE modem_test_bench)
 modem_copy_runtime(acquisition_demo)
+
+# Part 5's companion program. Its steps run on the article's recordings, a package of its
+# own: the demo and the tests look for it in test-data/first-path-v1/ beside the source,
+# where a configure with MODEM_ARTICLE_DATA=ON fetches and verifies it (what to fetch, and
+# the cases, are in tests/data/first-path/). Ordinary builds download nothing.
+option(MODEM_ARTICLE_DATA "Fetch the article recordings into test-data/ and run the tests on them" OFF)
+if(MODEM_ARTICLE_DATA)
+    include(cmake/ArticleData.cmake)
+    modem_article_pack("${PROJECT_SOURCE_DIR}/tests/data/first-path" "${PROJECT_SOURCE_DIR}/test-data")
+endif()
+add_executable(first_path_demo tests/first_path_demo.cpp)
+target_link_libraries(first_path_demo PRIVATE modem_test_bench)
+target_compile_definitions(first_path_demo PRIVATE MODEM_FIRST_PATH_DATA="${PROJECT_SOURCE_DIR}/test-data/first-path-v1")
+modem_copy_runtime(first_path_demo)
 
 # The runner: every stage published so far, end to end, on your own message or a WAV file.
 # Each article adds its stage.
@@ -150,6 +168,11 @@ if(MODEM_BUILD_TESTS)
     target_link_libraries(acquisition_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
     modem_copy_runtime(acquisition_tests)
 
+    add_executable(first_path_tests tests/first_path_tests.cpp tests/first_path_manifest_tests.cpp)
+    target_link_libraries(first_path_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
+    target_compile_definitions(first_path_tests PRIVATE MODEM_FIRST_PATH_DATA="${PROJECT_SOURCE_DIR}/test-data/first-path-v1")
+    modem_copy_runtime(first_path_tests)
+
     add_executable(runner_tests tests/runner_tests.cpp)
     target_link_libraries(runner_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
     modem_copy_runtime(runner_tests)
@@ -161,13 +184,18 @@ if(MODEM_BUILD_TESTS)
         target_link_libraries(transmit_chain_tests PRIVATE stdc++exp)
     endif()
     modem_copy_runtime(transmit_chain_tests)
+
+    # Part 2's strong quantity types: the units headers, checked at compile time and at run time.
+    add_executable(units_tests tests/common/units_tests.cpp)
+    target_link_libraries(units_tests PRIVATE modem_core Catch2::Catch2WithMain)
+    modem_copy_runtime(units_tests)
 endif()
 
 # --- Apply the warning/tooling flags to our own targets (GCC/Clang). ---
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    set(MODEM_OWN_TARGETS modem_core tx_demo modem_test_bench front_end_demo acquisition_demo runner)
+    set(MODEM_OWN_TARGETS modem_core tx_demo modem_test_bench front_end_demo acquisition_demo first_path_demo runner)
     if(MODEM_BUILD_TESTS)
-        list(APPEND MODEM_OWN_TARGETS front_end_tests acquisition_tests runner_tests transmit_chain_tests)
+        list(APPEND MODEM_OWN_TARGETS front_end_tests acquisition_tests first_path_tests runner_tests transmit_chain_tests units_tests)
     endif()
     foreach(target ${MODEM_OWN_TARGETS})
         target_compile_options(${target} PRIVATE -Wall -Wextra)
@@ -190,9 +218,8 @@ endif()
 #     every transmitted tribit (an integer hash, the same on every platform), so
 #     one changed bit in framing, coding, interleaving, mapping, probes or
 #     scrambling fails it. tx_golden checks the rendered audio's length and first
-#     samples, printed to five decimals so that last-bit differences between
-#     math libraries cannot fail it (the filter taps are still computed with the
-#     library's cosine when the modulator starts). ---
+#     samples, printed to five decimals; the transmit tests check every sample's
+#     bits, as a hash of the whole burst's audio. ---
 enable_testing()
 add_test(NAME tx_golden COMMAND tx_demo Hi)
 set_tests_properties(tx_golden PROPERTIES
@@ -205,6 +232,11 @@ add_test(NAME front_end_demo COMMAND front_end_demo)
 # Part 4's demo, the same way, and the runner on the walkthrough's line.
 add_test(NAME acquisition_demo COMMAND acquisition_demo)
 add_test(NAME runner COMMAND runner "Hi" --snr 10 --carrier 37)
+# Part 5's demo runs on the recordings, so it runs only with the article data on.
+if(MODEM_ARTICLE_DATA)
+    add_test(NAME first_path_demo COMMAND first_path_demo)
+    set_tests_properties(first_path_demo PROPERTIES LABELS first-path)
+endif()
 
 # Every Catch2 test case is its own CTest test, so each shows up in VS Code's Testing
 # panel. Hidden cases run only when asked for: ctest -L long, or ctest -L report.
@@ -213,6 +245,12 @@ if(MODEM_BUILD_TESTS)
     catch_discover_tests(front_end_tests TEST_SPEC "[long]" TEST_PREFIX "long: " PROPERTIES LABELS long)
     catch_discover_tests(front_end_tests TEST_SPEC "[report]" TEST_PREFIX "report: " PROPERTIES LABELS report)
     catch_discover_tests(acquisition_tests TEST_PREFIX "acquisition: ")
+    catch_discover_tests(first_path_tests TEST_SPEC "~[recordings]" TEST_PREFIX "first_path: ")
+    # The recordings' tests: with the article data on, a missing or unusable package fails them.
+    if(MODEM_ARTICLE_DATA)
+        catch_discover_tests(first_path_tests TEST_SPEC "[recordings]" TEST_PREFIX "first-path: " PROPERTIES LABELS first-path)
+    endif()
     catch_discover_tests(runner_tests TEST_PREFIX "runner: ")
     catch_discover_tests(transmit_chain_tests TEST_PREFIX "transmit: ")
+    catch_discover_tests(units_tests TEST_PREFIX "units: ")
 endif()

@@ -15,6 +15,9 @@ coverage.info
 # Demo output
 *.wav
 
+# The article recordings: a verified release download (-DMODEM_ARTICLE_DATA=ON), never committed
+/test-data/
+
 # Personal settings: your own CMake presets and editor state. The shared VS Code
 # setup (settings, tasks, launch, extensions) is committed.
 CMakeUserPresets.json

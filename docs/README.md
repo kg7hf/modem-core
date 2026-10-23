@@ -16,7 +16,9 @@ HF Modem in Modern C++":
 - [The audio front end](articles/04-audio-front-end.md): the receiver's first stage; mixing down, the matched filter, and finding and keeping each symbol's sampling instant, with the unit tests that check each piece.
 - [Acquisition: finding the burst](articles/05-acquisition.md): the receiver's second stage; finding the preamble in noise, reading the mode and the countdown, the front end's phase search and clock loop, the first part on testing, and the runner, which runs every stage so far on your own message.
 
-The next article, the earliest-path anchor, joins here when it publishes.
+- [The first path](articles/06-first-path.md): earliest-path anchoring; why the receiver anchors on the first path and not the strongest, how it finds a path the scan never grouped, the window that follows the equalizer, the recordings its walkthrough runs on, and the second part on testing.
+
+The next article, the equalizer, joins here when it publishes.
 
 ## Code-level walkthroughs
 
@@ -30,9 +32,10 @@ The transmit stages have detailed explainers next to their source:
 The receiver's stages have them too:
 
 - [`audio-front-end-explainer.md`](../modem/m110a/audio-front-end-explainer.md): the streaming front end (mix, matched filter, symbol timing, and from Part 4 the phase search and the rate integrator) and the carrier tracker.
-- [`synchronization-and-acquisition-explainer.md`](../modem/m110a/synchronization-and-acquisition-explainer.md): acquisition; the prefix reference, the carrier estimate, the block correlation, reading the mode and the countdown, the groups and the vote.
+- [`synchronization-and-acquisition-explainer.md`](../modem/m110a/synchronization-and-acquisition-explainer.md): acquisition; the prefix reference, the carrier estimate, the block correlation, reading the mode and the countdown, the groups and the vote, and from Part 5 the earliest-path anchoring.
 
 The unit tests in [`tests/front_end_tests.cpp`](../tests/front_end_tests.cpp) and
-[`tests/acquisition_tests.cpp`](../tests/acquisition_tests.cpp) show each piece working, and
+[`tests/acquisition_tests.cpp`](../tests/acquisition_tests.cpp) and
+[`tests/first_path_tests.cpp`](../tests/first_path_tests.cpp) show each piece working, and
 [`tests/runner.cpp`](../tests/runner.cpp) runs the stages end to end. The rest of the
 receiver is declared in the headers and arrives with the receiver series.

@@ -1,0 +1,731 @@
+{
+  "schema": "modem.first-path-cases/1",
+  "package_id": "first-path-v1",
+  "cases": [
+    {
+      "id": "fp1-echo-group",
+      "purpose": "Two groups in the scan, the echo's the strongest; anchoring off keeps the echo, anchoring on moves the burst to the direct path's group.",
+      "article_steps": [
+        1,
+        2
+      ],
+      "audio": "fp1-echo-group.wav",
+      "clean_reference": "clean/fp1-echo-group.wav",
+      "provenance": "fp1-echo-group.json",
+      "mode": "300L",
+      "payload_hex": "4869",
+      "channel": {
+        "model": "two-path Watterson (Rayleigh) channel, PathSim rev-6; Table XX of MIL-STD-188-110B (JITC 2004 Table 10.1) row 300 bps, 5 ms, 5 Hz, 7 dB",
+        "paths": [
+          {
+            "index": 0,
+            "delay_ms": 0.0,
+            "delay_samples_48k": 0,
+            "amplitude_coefficient": 0.7071067811865476,
+            "average_power": 0.5
+          },
+          {
+            "index": 1,
+            "delay_ms": 5.0,
+            "delay_samples_48k": 240,
+            "amplitude_coefficient": 0.7071067811865476,
+            "average_power": 0.5
+          }
+        ],
+        "paths_note": "equal average power: PathSim scales each path by 1/sqrt(number of paths). The second path's delay is exactly 8 samples/ms at 8 kHz, so it is 240 (5 ms) or 96 (2 ms) samples at 48 kHz; measured 240.00003 and 96.00002 (calibration P5-CAL-DELAY-v1).",
+        "doppler": {
+          "pathsim_option": "--spread",
+          "spread_hz": 5.0,
+          "offset_hz": 0.0,
+          "meaning": "PathSim's spread is the 2-sigma bandwidth of the Gaussian-shaped low-pass filter that shapes each path's complex Gaussian tap process (the Table value is the 2-sigma width), applied to both paths"
+        },
+        "seed": {
+          "pathsim_seed": 3,
+          "generator": "the C runtime's rand(), srand(seed): one stream drives both paths' Rayleigh generators and the noise, in an order that does not depend on the signal; the fading is advanced 4.0 s (discarded) before the first sample",
+          "pathsim_option": "--seed"
+        },
+        "snr": {
+          "definition": "signal power over noise power in a 300-3300 Hz band, over the span of the transmit audio (unpadded burst), measured from PathSim's own truth export on a non-fading render of the same input",
+          "target_db": 7.0,
+          "base_calibration_offset_db": -0.4,
+          "applied_offset_db": -0.74,
+          "commanded_db": 6.26,
+          "equation": "commanded = target + applied_offset",
+          "pathsim_option": "--snr",
+          "offset_reason": "PathSim holds the noise at a constant absolute level and sets the signal gain from a block-wise running RMS of its input; the silent lead pulls that average down, so the signal is about 0.9 dB too strong at the start of the burst and the span-average SNR is higher than commanded. The base offset -0.40 dB (burst alone: span SNR 7.03 dB at target 7.0) is lowered per mode so the span with lead and tail meets the target",
+          "calibration": {
+            "span_snr_mean_db": 7.033,
+            "span_snr_range_db": [
+              6.983,
+              7.075
+            ],
+            "seeds": "seeds 11..30",
+            "n_seeds": 20,
+            "deviation_from_target_db": 0.033,
+            "first_second_mean_db": 7.386,
+            "evidence": "P5-CAL-SNR-v1"
+          },
+          "note": "a target, not a measured SNR of this recording: the recording's fading makes its instantaneous SNR vary around the calibrated average"
+        },
+        "carrier_offset_hz": 0.0,
+        "clock_offset_ppm": 0.0,
+        "other_impairments": "none"
+      },
+      "timeline": {
+        "lead_samples": 24000,
+        "tail_samples": 24000,
+        "chain_delay_samples": 174.0,
+        "direct_start_sample": 24174.0,
+        "tx_symbol0_center_offset_samples": 0.0,
+        "direct_symbol0_sample": 24174.0,
+        "echo_delay_samples": 240.0,
+        "echo_start_sample": 24414.0,
+        "echo_symbol0_sample": 24414.0,
+        "preamble_symbols": 11520,
+        "direct_body_symbol0_sample": 254574.0,
+        "echo_body_symbol0_sample": 254814.0,
+        "uncertainty_samples": 0.01,
+        "calibration_id": "P5-CAL-DELAY-v1",
+        "calibration_method": "chain delay: the transmit audio through the identical chain with one non-fading path at 0 ms (PathSim --spread 0) and no noise, lead and tail present; cross-correlation peak (parabolic and exact DTFT) and cross-spectrum phase slope over 400-3200 Hz agree to 1e-4 sample (174.0000; PathSim's symmetric Hilbert filter delays 29 samples at 8 kHz, the resamplers none). tx_symbol0_center_offset_samples is from the transmitter's shaping code (BodyAudioStreamModulator::render_window: symbol s reaches output sample n through tap n + 320 - 20 s, the pulse peak, so symbol 0 is centred on transmit sample 0). Second path: two static paths, transfer-function phase, 240.00003 and 96.00002 samples. The receiver is a cross-check only.",
+        "operations": [
+          "transmit audio generated (unpadded, 24-bit)",
+          "24000 zeros added before and 24000 after at 48 kHz (PCM24), before any channel stage",
+          "level stage -12 dB and resampling 48 kHz -> 8 kHz (PCM16)",
+          "PathSim, seeded; fading advanced 4.0 s and discarded before the first sample; no output samples discarded",
+          "resampling 8 kHz -> 48 kHz (PCM16)",
+          "no trimming, no normalization; output frames = input frames"
+        ]
+      },
+      "phase_offsets_samples": [
+        0
+      ],
+      "expectations": {
+        "groups_present": [
+          "direct",
+          "echo"
+        ],
+        "strongest_group": "echo",
+        "strongest_margin_supporters_min": 1,
+        "anchor": {
+          "off": "echo",
+          "window_7": "direct",
+          "window_3": "direct"
+        },
+        "moved_by": "earlier_group"
+      }
+    },
+    {
+      "id": "fp2-window",
+      "purpose": "The echo's group is the strongest; the adaptive search window (from 7) leaves it there, the turbo window (from 3) moves to the direct path.",
+      "article_steps": [
+        2
+      ],
+      "audio": "fp2-window.wav",
+      "clean_reference": "clean/fp2-window.wav",
+      "provenance": "fp2-window.json",
+      "mode": "600L",
+      "payload_hex": "4869",
+      "channel": {
+        "model": "two-path Watterson (Rayleigh) channel, PathSim rev-6; Table XX of MIL-STD-188-110B (JITC 2004 Table 10.1) row 600 bps, 2 ms, 1 Hz, 7 dB",
+        "paths": [
+          {
+            "index": 0,
+            "delay_ms": 0.0,
+            "delay_samples_48k": 0,
+            "amplitude_coefficient": 0.7071067811865476,
+            "average_power": 0.5
+          },
+          {
+            "index": 1,
+            "delay_ms": 2.0,
+            "delay_samples_48k": 96,
+            "amplitude_coefficient": 0.7071067811865476,
+            "average_power": 0.5
+          }
+        ],
+        "paths_note": "equal average power: PathSim scales each path by 1/sqrt(number of paths). The second path's delay is exactly 8 samples/ms at 8 kHz, so it is 240 (5 ms) or 96 (2 ms) samples at 48 kHz; measured 240.00003 and 96.00002 (calibration P5-CAL-DELAY-v1).",
+        "doppler": {
+          "pathsim_option": "--spread",
+          "spread_hz": 1.0,
+          "offset_hz": 0.0,
+          "meaning": "PathSim's spread is the 2-sigma bandwidth of the Gaussian-shaped low-pass filter that shapes each path's complex Gaussian tap process (the Table value is the 2-sigma width), applied to both paths"
+        },
+        "seed": {
+          "pathsim_seed": 12,
+          "generator": "the C runtime's rand(), srand(seed): one stream drives both paths' Rayleigh generators and the noise, in an order that does not depend on the signal; the fading is advanced 4.0 s (discarded) before the first sample",
+          "pathsim_option": "--seed"
+        },
+        "snr": {
+          "definition": "signal power over noise power in a 300-3300 Hz band, over the span of the transmit audio (unpadded burst), measured from PathSim's own truth export on a non-fading render of the same input",
+          "target_db": 7.0,
+          "base_calibration_offset_db": -0.4,
+          "applied_offset_db": -0.74,
+          "commanded_db": 6.26,
+          "equation": "commanded = target + applied_offset",
+          "pathsim_option": "--snr",
+          "offset_reason": "PathSim holds the noise at a constant absolute level and sets the signal gain from a block-wise running RMS of its input; the silent lead pulls that average down, so the signal is about 0.9 dB too strong at the start of the burst and the span-average SNR is higher than commanded. The base offset -0.40 dB (burst alone: span SNR 7.03 dB at target 7.0) is lowered per mode so the span with lead and tail meets the target",
+          "calibration": {
+            "span_snr_mean_db": 7.033,
+            "span_snr_range_db": [
+              6.984,
+              7.075
+            ],
+            "seeds": "seeds 11..30",
+            "n_seeds": 20,
+            "deviation_from_target_db": 0.033,
+            "first_second_mean_db": 7.387,
+            "evidence": "P5-CAL-SNR-v1"
+          },
+          "note": "a target, not a measured SNR of this recording: the recording's fading makes its instantaneous SNR vary around the calibrated average"
+        },
+        "carrier_offset_hz": 0.0,
+        "clock_offset_ppm": 0.0,
+        "other_impairments": "none"
+      },
+      "timeline": {
+        "lead_samples": 24000,
+        "tail_samples": 24000,
+        "chain_delay_samples": 174.0,
+        "direct_start_sample": 24174.0,
+        "tx_symbol0_center_offset_samples": 0.0,
+        "direct_symbol0_sample": 24174.0,
+        "echo_delay_samples": 96.0,
+        "echo_start_sample": 24270.0,
+        "echo_symbol0_sample": 24270.0,
+        "preamble_symbols": 11520,
+        "direct_body_symbol0_sample": 254574.0,
+        "echo_body_symbol0_sample": 254670.0,
+        "uncertainty_samples": 0.01,
+        "calibration_id": "P5-CAL-DELAY-v1",
+        "calibration_method": "chain delay: the transmit audio through the identical chain with one non-fading path at 0 ms (PathSim --spread 0) and no noise, lead and tail present; cross-correlation peak (parabolic and exact DTFT) and cross-spectrum phase slope over 400-3200 Hz agree to 1e-4 sample (174.0000; PathSim's symmetric Hilbert filter delays 29 samples at 8 kHz, the resamplers none). tx_symbol0_center_offset_samples is from the transmitter's shaping code (BodyAudioStreamModulator::render_window: symbol s reaches output sample n through tap n + 320 - 20 s, the pulse peak, so symbol 0 is centred on transmit sample 0). Second path: two static paths, transfer-function phase, 240.00003 and 96.00002 samples. The receiver is a cross-check only.",
+        "operations": [
+          "transmit audio generated (unpadded, 24-bit)",
+          "24000 zeros added before and 24000 after at 48 kHz (PCM24), before any channel stage",
+          "level stage -12 dB and resampling 48 kHz -> 8 kHz (PCM16)",
+          "PathSim, seeded; fading advanced 4.0 s and discarded before the first sample; no output samples discarded",
+          "resampling 8 kHz -> 48 kHz (PCM16)",
+          "no trimming, no normalization; output frames = input frames"
+        ]
+      },
+      "phase_offsets_samples": [
+        0
+      ],
+      "expectations": {
+        "strongest_group": "echo",
+        "strongest_margin_supporters_min": 1,
+        "anchor": {
+          "off": "echo",
+          "window_7": "echo",
+          "window_3": "direct"
+        }
+      }
+    },
+    {
+      "id": "fp3-faded-direct",
+      "purpose": "The direct path forms no group; the precursor search finds it, the walk turns a faded segment away and then reads.",
+      "article_steps": [
+        3
+      ],
+      "audio": "fp3-faded-direct.wav",
+      "clean_reference": "clean/fp3-faded-direct.wav",
+      "provenance": "fp3-faded-direct.json",
+      "mode": "300L",
+      "payload_hex": "4869",
+      "channel": {
+        "model": "two-path Watterson (Rayleigh) channel, PathSim rev-6; Table XX of MIL-STD-188-110B (JITC 2004 Table 10.1) row 300 bps, 5 ms, 5 Hz, 7 dB",
+        "paths": [
+          {
+            "index": 0,
+            "delay_ms": 0.0,
+            "delay_samples_48k": 0,
+            "amplitude_coefficient": 0.7071067811865476,
+            "average_power": 0.5
+          },
+          {
+            "index": 1,
+            "delay_ms": 5.0,
+            "delay_samples_48k": 240,
+            "amplitude_coefficient": 0.7071067811865476,
+            "average_power": 0.5
+          }
+        ],
+        "paths_note": "equal average power: PathSim scales each path by 1/sqrt(number of paths). The second path's delay is exactly 8 samples/ms at 8 kHz, so it is 240 (5 ms) or 96 (2 ms) samples at 48 kHz; measured 240.00003 and 96.00002 (calibration P5-CAL-DELAY-v1).",
+        "doppler": {
+          "pathsim_option": "--spread",
+          "spread_hz": 5.0,
+          "offset_hz": 0.0,
+          "meaning": "PathSim's spread is the 2-sigma bandwidth of the Gaussian-shaped low-pass filter that shapes each path's complex Gaussian tap process (the Table value is the 2-sigma width), applied to both paths"
+        },
+        "seed": {
+          "pathsim_seed": 25,
+          "generator": "the C runtime's rand(), srand(seed): one stream drives both paths' Rayleigh generators and the noise, in an order that does not depend on the signal; the fading is advanced 4.0 s (discarded) before the first sample",
+          "pathsim_option": "--seed"
+        },
+        "snr": {
+          "definition": "signal power over noise power in a 300-3300 Hz band, over the span of the transmit audio (unpadded burst), measured from PathSim's own truth export on a non-fading render of the same input",
+          "target_db": 7.0,
+          "base_calibration_offset_db": -0.4,
+          "applied_offset_db": -0.74,
+          "commanded_db": 6.26,
+          "equation": "commanded = target + applied_offset",
+          "pathsim_option": "--snr",
+          "offset_reason": "PathSim holds the noise at a constant absolute level and sets the signal gain from a block-wise running RMS of its input; the silent lead pulls that average down, so the signal is about 0.9 dB too strong at the start of the burst and the span-average SNR is higher than commanded. The base offset -0.40 dB (burst alone: span SNR 7.03 dB at target 7.0) is lowered per mode so the span with lead and tail meets the target",
+          "calibration": {
+            "span_snr_mean_db": 7.033,
+            "span_snr_range_db": [
+              6.983,
+              7.075
+            ],
+            "seeds": "seeds 11..30",
+            "n_seeds": 20,
+            "deviation_from_target_db": 0.033,
+            "first_second_mean_db": 7.386,
+            "evidence": "P5-CAL-SNR-v1"
+          },
+          "note": "a target, not a measured SNR of this recording: the recording's fading makes its instantaneous SNR vary around the calibrated average"
+        },
+        "carrier_offset_hz": 0.0,
+        "clock_offset_ppm": 0.0,
+        "other_impairments": "none"
+      },
+      "timeline": {
+        "lead_samples": 24000,
+        "tail_samples": 24000,
+        "chain_delay_samples": 174.0,
+        "direct_start_sample": 24174.0,
+        "tx_symbol0_center_offset_samples": 0.0,
+        "direct_symbol0_sample": 24174.0,
+        "echo_delay_samples": 240.0,
+        "echo_start_sample": 24414.0,
+        "echo_symbol0_sample": 24414.0,
+        "preamble_symbols": 11520,
+        "direct_body_symbol0_sample": 254574.0,
+        "echo_body_symbol0_sample": 254814.0,
+        "uncertainty_samples": 0.01,
+        "calibration_id": "P5-CAL-DELAY-v1",
+        "calibration_method": "chain delay: the transmit audio through the identical chain with one non-fading path at 0 ms (PathSim --spread 0) and no noise, lead and tail present; cross-correlation peak (parabolic and exact DTFT) and cross-spectrum phase slope over 400-3200 Hz agree to 1e-4 sample (174.0000; PathSim's symmetric Hilbert filter delays 29 samples at 8 kHz, the resamplers none). tx_symbol0_center_offset_samples is from the transmitter's shaping code (BodyAudioStreamModulator::render_window: symbol s reaches output sample n through tap n + 320 - 20 s, the pulse peak, so symbol 0 is centred on transmit sample 0). Second path: two static paths, transfer-function phase, 240.00003 and 96.00002 samples. The receiver is a cross-check only.",
+        "operations": [
+          "transmit audio generated (unpadded, 24-bit)",
+          "24000 zeros added before and 24000 after at 48 kHz (PCM24), before any channel stage",
+          "level stage -12 dB and resampling 48 kHz -> 8 kHz (PCM16)",
+          "PathSim, seeded; fading advanced 4.0 s and discarded before the first sample; no output samples discarded",
+          "resampling 8 kHz -> 48 kHz (PCM16)",
+          "no trimming, no normalization; output frames = input frames"
+        ]
+      },
+      "phase_offsets_samples": [
+        0
+      ],
+      "expectations": {
+        "groups_absent": [
+          "direct"
+        ],
+        "anchor": {
+          "off": "echo",
+          "window_7": "direct"
+        },
+        "moved_by": "precursor_search",
+        "reanchored_lag": 12,
+        "precursor_fraction_min": 0.25,
+        "walk_segments_min": 2,
+        "walk_rejected_total_min": 1,
+        "accepted_correlation_min": 0.45
+      }
+    },
+    {
+      "id": "fp4-phase-short",
+      "purpose": "A weak direct path reached at some arrival phases and not at others, with the short preamble.",
+      "article_steps": [
+        6
+      ],
+      "audio": "fp4-phase-short.wav",
+      "clean_reference": "clean/fp4-phase-short.wav",
+      "provenance": "fp4-phase-short.json",
+      "mode": "600S",
+      "payload_hex": "4869",
+      "channel": {
+        "model": "two-path Watterson (Rayleigh) channel, PathSim rev-6; Table XX of MIL-STD-188-110B (JITC 2004 Table 10.1) row 600 bps, 2 ms, 1 Hz, 7 dB",
+        "paths": [
+          {
+            "index": 0,
+            "delay_ms": 0.0,
+            "delay_samples_48k": 0,
+            "amplitude_coefficient": 0.7071067811865476,
+            "average_power": 0.5
+          },
+          {
+            "index": 1,
+            "delay_ms": 2.0,
+            "delay_samples_48k": 96,
+            "amplitude_coefficient": 0.7071067811865476,
+            "average_power": 0.5
+          }
+        ],
+        "paths_note": "equal average power: PathSim scales each path by 1/sqrt(number of paths). The second path's delay is exactly 8 samples/ms at 8 kHz, so it is 240 (5 ms) or 96 (2 ms) samples at 48 kHz; measured 240.00003 and 96.00002 (calibration P5-CAL-DELAY-v1).",
+        "doppler": {
+          "pathsim_option": "--spread",
+          "spread_hz": 1.0,
+          "offset_hz": 0.0,
+          "meaning": "PathSim's spread is the 2-sigma bandwidth of the Gaussian-shaped low-pass filter that shapes each path's complex Gaussian tap process (the Table value is the 2-sigma width), applied to both paths"
+        },
+        "seed": {
+          "pathsim_seed": 40,
+          "generator": "the C runtime's rand(), srand(seed): one stream drives both paths' Rayleigh generators and the noise, in an order that does not depend on the signal; the fading is advanced 4.0 s (discarded) before the first sample",
+          "pathsim_option": "--seed"
+        },
+        "snr": {
+          "definition": "signal power over noise power in a 300-3300 Hz band, over the span of the transmit audio (unpadded burst), measured from PathSim's own truth export on a non-fading render of the same input",
+          "target_db": 7.0,
+          "base_calibration_offset_db": -0.4,
+          "applied_offset_db": -0.96,
+          "commanded_db": 6.04,
+          "equation": "commanded = target + applied_offset",
+          "pathsim_option": "--snr",
+          "offset_reason": "PathSim holds the noise at a constant absolute level and sets the signal gain from a block-wise running RMS of its input; the silent lead pulls that average down, so the signal is about 0.9 dB too strong at the start of the burst and the span-average SNR is higher than commanded. The base offset -0.40 dB (burst alone: span SNR 7.03 dB at target 7.0) is lowered per mode so the span with lead and tail meets the target ; fp4 and fp6 share one commanded SNR so that their lead samples are bit-identical",
+          "calibration": {
+            "span_snr_mean_db": 7.163,
+            "span_snr_range_db": [
+              7.056,
+              7.345
+            ],
+            "seeds": "seeds 31..50",
+            "n_seeds": 20,
+            "deviation_from_target_db": 0.163,
+            "first_second_mean_db": 7.16,
+            "evidence": "P5-CAL-SNR-v1"
+          },
+          "note": "a target, not a measured SNR of this recording: the recording's fading makes its instantaneous SNR vary around the calibrated average"
+        },
+        "carrier_offset_hz": 0.0,
+        "clock_offset_ppm": 0.0,
+        "other_impairments": "none"
+      },
+      "timeline": {
+        "lead_samples": 24000,
+        "tail_samples": 24000,
+        "chain_delay_samples": 174.0,
+        "direct_start_sample": 24174.0,
+        "tx_symbol0_center_offset_samples": 0.0,
+        "direct_symbol0_sample": 24174.0,
+        "echo_delay_samples": 96.0,
+        "echo_start_sample": 24270.0,
+        "echo_symbol0_sample": 24270.0,
+        "preamble_symbols": 1440,
+        "direct_body_symbol0_sample": 52974.0,
+        "echo_body_symbol0_sample": 53070.0,
+        "uncertainty_samples": 0.01,
+        "calibration_id": "P5-CAL-DELAY-v1",
+        "calibration_method": "chain delay: the transmit audio through the identical chain with one non-fading path at 0 ms (PathSim --spread 0) and no noise, lead and tail present; cross-correlation peak (parabolic and exact DTFT) and cross-spectrum phase slope over 400-3200 Hz agree to 1e-4 sample (174.0000; PathSim's symmetric Hilbert filter delays 29 samples at 8 kHz, the resamplers none). tx_symbol0_center_offset_samples is from the transmitter's shaping code (BodyAudioStreamModulator::render_window: symbol s reaches output sample n through tap n + 320 - 20 s, the pulse peak, so symbol 0 is centred on transmit sample 0). Second path: two static paths, transfer-function phase, 240.00003 and 96.00002 samples. The receiver is a cross-check only.",
+        "operations": [
+          "transmit audio generated (unpadded, 24-bit)",
+          "24000 zeros added before and 24000 after at 48 kHz (PCM24), before any channel stage",
+          "level stage -12 dB and resampling 48 kHz -> 8 kHz (PCM16)",
+          "PathSim, seeded; fading advanced 4.0 s and discarded before the first sample; no output samples discarded",
+          "resampling 8 kHz -> 48 kHz (PCM16)",
+          "no trimming, no normalization; output frames = input frames"
+        ]
+      },
+      "phase_offsets_samples": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "expectations": {
+        "profile": "window_3",
+        "direct_count_min": 4,
+        "direct_count_max": 16,
+        "others": "echo",
+        "phase_vector": "DDDDDDDEEEEDDDDDDDDD",
+        "walk_segments": [
+          6,
+          6,
+          6,
+          6,
+          9,
+          6,
+          6,
+          2,
+          2,
+          2,
+          2,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          6,
+          6
+        ]
+      }
+    },
+    {
+      "id": "fp5-sidelobe-path",
+      "purpose": "The anchor already on the direct path; the later path's sidelobe shows as a peak ahead of it and the walk rejects it.",
+      "article_steps": [
+        5
+      ],
+      "audio": "fp5-sidelobe-path.wav",
+      "clean_reference": "clean/fp5-sidelobe-path.wav",
+      "provenance": "fp5-sidelobe-path.json",
+      "mode": "300L",
+      "payload_hex": "4869",
+      "channel": {
+        "model": "two-path Watterson (Rayleigh) channel, PathSim rev-6; Table XX of MIL-STD-188-110B (JITC 2004 Table 10.1) row 300 bps, 5 ms, 5 Hz, 7 dB",
+        "paths": [
+          {
+            "index": 0,
+            "delay_ms": 0.0,
+            "delay_samples_48k": 0,
+            "amplitude_coefficient": 0.7071067811865476,
+            "average_power": 0.5
+          },
+          {
+            "index": 1,
+            "delay_ms": 5.0,
+            "delay_samples_48k": 240,
+            "amplitude_coefficient": 0.7071067811865476,
+            "average_power": 0.5
+          }
+        ],
+        "paths_note": "equal average power: PathSim scales each path by 1/sqrt(number of paths). The second path's delay is exactly 8 samples/ms at 8 kHz, so it is 240 (5 ms) or 96 (2 ms) samples at 48 kHz; measured 240.00003 and 96.00002 (calibration P5-CAL-DELAY-v1).",
+        "doppler": {
+          "pathsim_option": "--spread",
+          "spread_hz": 5.0,
+          "offset_hz": 0.0,
+          "meaning": "PathSim's spread is the 2-sigma bandwidth of the Gaussian-shaped low-pass filter that shapes each path's complex Gaussian tap process (the Table value is the 2-sigma width), applied to both paths"
+        },
+        "seed": {
+          "pathsim_seed": 255,
+          "generator": "the C runtime's rand(), srand(seed): one stream drives both paths' Rayleigh generators and the noise, in an order that does not depend on the signal; the fading is advanced 4.0 s (discarded) before the first sample",
+          "pathsim_option": "--seed"
+        },
+        "snr": {
+          "definition": "signal power over noise power in a 300-3300 Hz band, over the span of the transmit audio (unpadded burst), measured from PathSim's own truth export on a non-fading render of the same input",
+          "target_db": 7.0,
+          "base_calibration_offset_db": -0.4,
+          "applied_offset_db": -0.74,
+          "commanded_db": 6.26,
+          "equation": "commanded = target + applied_offset",
+          "pathsim_option": "--snr",
+          "offset_reason": "PathSim holds the noise at a constant absolute level and sets the signal gain from a block-wise running RMS of its input; the silent lead pulls that average down, so the signal is about 0.9 dB too strong at the start of the burst and the span-average SNR is higher than commanded. The base offset -0.40 dB (burst alone: span SNR 7.03 dB at target 7.0) is lowered per mode so the span with lead and tail meets the target",
+          "calibration": {
+            "span_snr_mean_db": 7.033,
+            "span_snr_range_db": [
+              6.983,
+              7.075
+            ],
+            "seeds": "seeds 11..30",
+            "n_seeds": 20,
+            "deviation_from_target_db": 0.033,
+            "first_second_mean_db": 7.386,
+            "evidence": "P5-CAL-SNR-v1"
+          },
+          "note": "a target, not a measured SNR of this recording: the recording's fading makes its instantaneous SNR vary around the calibrated average"
+        },
+        "carrier_offset_hz": 0.0,
+        "clock_offset_ppm": 0.0,
+        "other_impairments": "none"
+      },
+      "timeline": {
+        "lead_samples": 24000,
+        "tail_samples": 24000,
+        "chain_delay_samples": 174.0,
+        "direct_start_sample": 24174.0,
+        "tx_symbol0_center_offset_samples": 0.0,
+        "direct_symbol0_sample": 24174.0,
+        "echo_delay_samples": 240.0,
+        "echo_start_sample": 24414.0,
+        "echo_symbol0_sample": 24414.0,
+        "preamble_symbols": 11520,
+        "direct_body_symbol0_sample": 254574.0,
+        "echo_body_symbol0_sample": 254814.0,
+        "uncertainty_samples": 0.01,
+        "calibration_id": "P5-CAL-DELAY-v1",
+        "calibration_method": "chain delay: the transmit audio through the identical chain with one non-fading path at 0 ms (PathSim --spread 0) and no noise, lead and tail present; cross-correlation peak (parabolic and exact DTFT) and cross-spectrum phase slope over 400-3200 Hz agree to 1e-4 sample (174.0000; PathSim's symmetric Hilbert filter delays 29 samples at 8 kHz, the resamplers none). tx_symbol0_center_offset_samples is from the transmitter's shaping code (BodyAudioStreamModulator::render_window: symbol s reaches output sample n through tap n + 320 - 20 s, the pulse peak, so symbol 0 is centred on transmit sample 0). Second path: two static paths, transfer-function phase, 240.00003 and 96.00002 samples. The receiver is a cross-check only.",
+        "operations": [
+          "transmit audio generated (unpadded, 24-bit)",
+          "24000 zeros added before and 24000 after at 48 kHz (PCM24), before any channel stage",
+          "level stage -12 dB and resampling 48 kHz -> 8 kHz (PCM16)",
+          "PathSim, seeded; fading advanced 4.0 s and discarded before the first sample; no output samples discarded",
+          "resampling 8 kHz -> 48 kHz (PCM16)",
+          "no trimming, no normalization; output frames = input frames"
+        ]
+      },
+      "phase_offsets_samples": [
+        0
+      ],
+      "expectations": {
+        "anchor": {
+          "off": "direct",
+          "window_7": "direct"
+        },
+        "precursor_lag": 11,
+        "precursor_fraction_min": 0.125,
+        "walk_accepted": false,
+        "rejected_correlation_max": 0.25
+      }
+    },
+    {
+      "id": "fp6-phase-long",
+      "purpose": "The same weak path as fp4 (its seed and timeline) reached at every arrival phase with the long preamble.",
+      "article_steps": [
+        6
+      ],
+      "audio": "fp6-phase-long.wav",
+      "clean_reference": "clean/fp6-phase-long.wav",
+      "provenance": "fp6-phase-long.json",
+      "mode": "600L",
+      "payload_hex": "4869",
+      "channel": {
+        "model": "two-path Watterson (Rayleigh) channel, PathSim rev-6; Table XX of MIL-STD-188-110B (JITC 2004 Table 10.1) row 600 bps, 2 ms, 1 Hz, 7 dB",
+        "paths": [
+          {
+            "index": 0,
+            "delay_ms": 0.0,
+            "delay_samples_48k": 0,
+            "amplitude_coefficient": 0.7071067811865476,
+            "average_power": 0.5
+          },
+          {
+            "index": 1,
+            "delay_ms": 2.0,
+            "delay_samples_48k": 96,
+            "amplitude_coefficient": 0.7071067811865476,
+            "average_power": 0.5
+          }
+        ],
+        "paths_note": "equal average power: PathSim scales each path by 1/sqrt(number of paths). The second path's delay is exactly 8 samples/ms at 8 kHz, so it is 240 (5 ms) or 96 (2 ms) samples at 48 kHz; measured 240.00003 and 96.00002 (calibration P5-CAL-DELAY-v1).",
+        "doppler": {
+          "pathsim_option": "--spread",
+          "spread_hz": 1.0,
+          "offset_hz": 0.0,
+          "meaning": "PathSim's spread is the 2-sigma bandwidth of the Gaussian-shaped low-pass filter that shapes each path's complex Gaussian tap process (the Table value is the 2-sigma width), applied to both paths"
+        },
+        "seed": {
+          "pathsim_seed": 40,
+          "generator": "the C runtime's rand(), srand(seed): one stream drives both paths' Rayleigh generators and the noise, in an order that does not depend on the signal; the fading is advanced 4.0 s (discarded) before the first sample",
+          "pathsim_option": "--seed"
+        },
+        "snr": {
+          "definition": "signal power over noise power in a 300-3300 Hz band, over the span of the transmit audio (unpadded burst), measured from PathSim's own truth export on a non-fading render of the same input",
+          "target_db": 7.0,
+          "base_calibration_offset_db": -0.4,
+          "applied_offset_db": -0.96,
+          "commanded_db": 6.04,
+          "equation": "commanded = target + applied_offset",
+          "pathsim_option": "--snr",
+          "offset_reason": "PathSim holds the noise at a constant absolute level and sets the signal gain from a block-wise running RMS of its input; the silent lead pulls that average down, so the signal is about 0.9 dB too strong at the start of the burst and the span-average SNR is higher than commanded. The base offset -0.40 dB (burst alone: span SNR 7.03 dB at target 7.0) is lowered per mode so the span with lead and tail meets the target ; fp4 and fp6 share one commanded SNR so that their lead samples are bit-identical",
+          "calibration": {
+            "span_snr_mean_db": 6.815,
+            "span_snr_range_db": [
+              6.739,
+              6.873
+            ],
+            "seeds": "seeds 31..50",
+            "n_seeds": 20,
+            "deviation_from_target_db": -0.185,
+            "first_second_mean_db": 7.155,
+            "evidence": "P5-CAL-SNR-v1"
+          },
+          "note": "a target, not a measured SNR of this recording: the recording's fading makes its instantaneous SNR vary around the calibrated average"
+        },
+        "carrier_offset_hz": 0.0,
+        "clock_offset_ppm": 0.0,
+        "other_impairments": "none"
+      },
+      "timeline": {
+        "lead_samples": 24000,
+        "tail_samples": 24000,
+        "chain_delay_samples": 174.0,
+        "direct_start_sample": 24174.0,
+        "tx_symbol0_center_offset_samples": 0.0,
+        "direct_symbol0_sample": 24174.0,
+        "echo_delay_samples": 96.0,
+        "echo_start_sample": 24270.0,
+        "echo_symbol0_sample": 24270.0,
+        "preamble_symbols": 11520,
+        "direct_body_symbol0_sample": 254574.0,
+        "echo_body_symbol0_sample": 254670.0,
+        "uncertainty_samples": 0.01,
+        "calibration_id": "P5-CAL-DELAY-v1",
+        "calibration_method": "chain delay: the transmit audio through the identical chain with one non-fading path at 0 ms (PathSim --spread 0) and no noise, lead and tail present; cross-correlation peak (parabolic and exact DTFT) and cross-spectrum phase slope over 400-3200 Hz agree to 1e-4 sample (174.0000; PathSim's symmetric Hilbert filter delays 29 samples at 8 kHz, the resamplers none). tx_symbol0_center_offset_samples is from the transmitter's shaping code (BodyAudioStreamModulator::render_window: symbol s reaches output sample n through tap n + 320 - 20 s, the pulse peak, so symbol 0 is centred on transmit sample 0). Second path: two static paths, transfer-function phase, 240.00003 and 96.00002 samples. The receiver is a cross-check only.",
+        "operations": [
+          "transmit audio generated (unpadded, 24-bit)",
+          "24000 zeros added before and 24000 after at 48 kHz (PCM24), before any channel stage",
+          "level stage -12 dB and resampling 48 kHz -> 8 kHz (PCM16)",
+          "PathSim, seeded; fading advanced 4.0 s and discarded before the first sample; no output samples discarded",
+          "resampling 8 kHz -> 48 kHz (PCM16)",
+          "no trimming, no normalization; output frames = input frames"
+        ]
+      },
+      "phase_offsets_samples": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "expectations": {
+        "profile": "window_3",
+        "direct_count": 20,
+        "phase_vector": "DDDDDDDDDDDDDDDDDDDD",
+        "walk_segments": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          5,
+          5,
+          5,
+          5,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  ]
+}

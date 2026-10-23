@@ -58,7 +58,7 @@ public:
 
     constexpr Result(T value) noexcept : mResult{std::move(value)} {}
 
-    constexpr Result(Status error) noexcept : mResult{std::unexpected(std::move(error))} {}
+    constexpr Result(Status error) noexcept : mResult{std::unexpected(error)} {}
 
     [[nodiscard]] constexpr bool has_value() const noexcept { return mResult.has_value(); }
 

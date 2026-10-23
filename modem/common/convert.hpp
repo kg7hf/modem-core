@@ -176,7 +176,7 @@ template <std::ranges::random_access_range R>
     {
         convert_detail::violated("at: index out of range");
     }
-    return std::ranges::begin(r)[narrow<std::ranges::range_difference_t<R>>(*k)];
+    return std::ranges::begin(std::forward<R>(r))[narrow<std::ranges::range_difference_t<R>>(*k)];
 }
 
 // A cast-free signed-reach guard: base - back, only when it stays in [0, limit).

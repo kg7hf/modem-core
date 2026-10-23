@@ -45,8 +45,8 @@ using ::modem::common::StatusCode;
 constexpr std::uint32_t body_symbol_rate_baud = 2400U;
 constexpr std::uint32_t body_carrier_hz = 1800U;
 constexpr std::uint32_t body_audio_sample_rate_hz = 48000U;
-constexpr std::size_t body_preamble_acquisition_prefix_symbols = 9U * 32U;
-constexpr std::size_t body_preamble_segment_symbols = 15U * 32U;
+constexpr std::size_t body_preamble_acquisition_prefix_symbols = std::size_t{9} * 32U;
+constexpr std::size_t body_preamble_segment_symbols = std::size_t{15} * 32U;
 constexpr std::uint32_t body_eom_word = 0x4B65A5B2U;
 constexpr std::size_t body_eom_bits = 32U;
 constexpr std::size_t body_flush_bits = 144U;
@@ -67,7 +67,7 @@ constexpr std::size_t body_audio_samples_per_symbol = ::modem::common::samples_p
 // literal so every compiler and library reads back the same bits. (The parts that are exactly zero
 // in real arithmetic at the quadrant entries 20, 40 and 60 are written as exact zeros.)
 constexpr std::size_t body_carrier_period_samples = 80U;
-static_assert(body_carrier_hz * body_carrier_period_samples == 3U * body_audio_sample_rate_hz, "the 1800 Hz carrier repeats every 80 samples at 48 kHz");
+static_assert(body_carrier_hz * body_carrier_period_samples == std::size_t{3} * body_audio_sample_rate_hz, "the 1800 Hz carrier repeats every 80 samples at 48 kHz");
 inline constexpr std::array<::modem::common::IQSample, body_carrier_period_samples> body_carrier_table{{
     {0x1.0p+0F, 0x0.0p+0F},
     {0x1.f1da78p-1F, 0x1.de189ap-3F},
@@ -251,9 +251,9 @@ struct BodyDecodeState
 // every per-block receive buffer (see body_scratch_max), proved with static_assert.
 struct DesignatorRow
 {
-    DataRate rate;
-    BodyDesignators short_code;
-    BodyDesignators long_code;
+    DataRate rate{};
+    BodyDesignators short_code{};
+    BodyDesignators long_code{};
 };
 
 inline constexpr std::array<DesignatorRow, 7> designator_rows{{
@@ -313,7 +313,7 @@ inline constexpr std::array<DesignatorRow, 7> designator_rows{{
     }
 
     const bool is_long = mode.interleave == BodyInterleave::long_block;
-    const auto multiplier = is_long ? 8U : 1U;
+    const std::size_t multiplier = is_long ? 8U : 1U;
     BodyBlockPlan plan{mode, designators.value()};
     plan.transmitted_symbols = 1440U * multiplier;
 
@@ -550,8 +550,7 @@ public:
     [[nodiscard]] Status render_window(BitSpan symbols, std::size_t first_output_symbol, std::size_t output_symbols, MutableSampleSpan output) noexcept;
 
 private:
-    std::array<float, body_audio_shaping_taps> mTaps{};
-    float mAmplitudeScale{};
+    float mAmplitudeScale{};     // the shaping pulse is a constant table (body_shaping_pulse.hpp)
     std::size_t mCarrierIndex{}; // sample number mod body_carrier_period_samples
     bool mInitialized{};
 };

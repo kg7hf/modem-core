@@ -17,13 +17,15 @@
 // This header declares the receiver's FRONT DOOR: the primitives that locate a
 // MIL-STD-188-110B body burst in symbol-rate complex baseband and hand the rest
 // of the receiver a locked reference: BodyAcquisitionConfig / BodyAcquisition
-// and acquire_body_preamble(), with the candidate-evaluation primitives a
-// streaming receiver can call one rolling position at a time
-// (make_body_prefix_reference, estimate_body_prefix_frequency_radians,
-// body_prefix_correlation, characterize_body_candidate,
-// body_candidate_is_valid).
-// Explained in the article series, Part 4 (acquisition: finding the burst); its
-// unit tests are tests/acquisition_tests.cpp.
+// (with the earliest-path anchoring's diagnostics) and acquire_body_preamble(),
+// with the candidate-evaluation primitives a streaming receiver can call one
+// rolling position at a time (make_body_prefix_reference,
+// estimate_body_prefix_frequency_radians, body_prefix_correlation,
+// characterize_body_candidate, body_candidate_is_valid) and the reference's own
+// sidelobe model (body_precursor_sidelobe_powers).
+// Explained in the article series, Part 4 (acquisition: finding the burst) and
+// Part 5 (the first path); their unit tests are tests/acquisition_tests.cpp and
+// tests/first_path_tests.cpp.
 //
 // The full teaching walkthrough - pipeline diagram, worked example on the
 // demo's own output, equations, fading-failure modes, and debugging signals - is in
@@ -44,6 +46,52 @@ struct BodyAcquisitionConfig
     float minimum_correlation{0.75F};          // the correlation floor
     float maximum_frequency_offset_hz{120.0F}; // the carrier gate
     std::size_t maximum_start_symbol{};        // the last start searched; 0 searches them all
+    // Earliest-path anchoring (on by default; false returns the strongest group
+    // as the scan leaves it). On a multipath channel every propagation path
+    // produces its own consensus group, offset by the path delay and all
+    // describing the same transmission. The strongest group, the one with the
+    // most supporting segments, is the ECHO whenever the direct path was the
+    // weaker through the segments the scan covers. The direct path then sits at
+    // a negative lag the equalizer's precursor span cannot reach, and the
+    // countdown decoded on that anchor can be off by a segment or two. With this
+    // flag the winner is re-anchored to the EARLIEST path of the same
+    // transmission (consensus group, then a multi-segment negative-lag prefix
+    // search), the designators and countdown are re-decoded on it, and the body
+    // boundary is the majority over every preamble segment.
+    bool anchor_earliest_path{true};
+    std::size_t anchor_maximum_path_delay_symbols{15U};
+    // Re-anchor only when the earlier path lies BEYOND the adaptive equalizer's
+    // precursor reach (its short geometry: 24 T/2 taps, cursor 12 = 6 symbols).
+    // Inside that reach the adaptive equalizer already handles a precursor path
+    // (the 2 ms rows of Table XX, 4.8 symbols), and moving the anchor there only
+    // re-rolls a marginal equalizer. The 5 ms rows sit at 12 symbols, far beyond
+    // it. The host's whole-burst turbo decoder needs the first path even at 2 ms,
+    // and runs with 3.
+    std::size_t anchor_minimum_path_delay_symbols{7U};
+};
+
+// What the earliest-path anchoring saw and decided, kept
+// on the acquisition for the host's diagnostics: the precursor search's
+// earliest significant lag and its power fraction of lag 0, the segments it
+// accumulated, and how the re-characterization walk fared (segments tried
+// and the count rejected by each test) - so a burst that keeps a later-path
+// anchor can be traced to the test that kept it.
+struct BodyAnchorDiagnostics
+{
+    // Sidelobe-corrected precursor power at lags 0..15 as a fraction of lag 0.
+    std::array<float, 16U> precursor_powers{};
+    // Qualifying peaks (earliest first) and the earliest one.
+    std::size_t precursor_candidates{};
+    std::size_t precursor_lag{};
+    float precursor_fraction{};
+    std::size_t precursor_segments{};
+    std::size_t walk_segments{};
+    std::size_t walk_rejected_frequency{};
+    std::size_t walk_rejected_correlation{};
+    std::size_t walk_rejected_invalid{};
+    std::size_t walk_rejected_mode{};
+    std::size_t reanchored_lag{};
+    bool reanchored{};
 };
 
 struct BodyAcquisition
@@ -58,6 +106,7 @@ struct BodyAcquisition
     float carrier_phase_radians{};
     float normalized_correlation{};
     BodyModeRecognition recognition{};
+    BodyAnchorDiagnostics anchor{};
 };
 
 [[nodiscard]] Result<BodyAcquisition> acquire_body_preamble(IQSampleSpan symbol_rate_input, const BodyAcquisitionConfig& config) noexcept;
@@ -84,5 +133,12 @@ void make_body_prefix_reference(std::span<::modem::common::IQSample, body_preamb
 // True when the characterized candidate names a supported mode with an
 // internally consistent countdown.
 [[nodiscard]] bool body_candidate_is_valid(const BodyAcquisition& candidate) noexcept;
+// The prefix reference's own structural power at negative lags 0..maximum_lag
+// (at most 15): the reference shifted into the previous segment's known tail,
+// scored as a path is (the noncoherent sum of its nine 32-chip block
+// correlations; lag 0 is the main path's own power). A measured precursor
+// profile subtracts (sidelobe[lag] / sidelobe[0]) x power[0] so the main
+// path's sidelobes are not read as an earlier path.
+[[nodiscard]] std::array<float, 16U> body_precursor_sidelobe_powers(IQSampleSpan reference, std::size_t maximum_lag) noexcept;
 
 } // namespace modem::m110a

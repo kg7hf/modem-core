@@ -139,6 +139,18 @@ TEST_CASE("The runner finds the walkthrough's burst where the bench put it", "[r
     CHECK(std::fabs(acquisition.acquired->frequency_offset_hz - 37.0F) < 5.0F);
 }
 
+TEST_CASE("On the walkthrough's one-path line the Part 5 line keeps the anchor where the strongest group put it", "[runner][chain][first_path]")
+{
+    const auto report = run_chain(walkthrough_spec());
+    REQUIRE(report.has_value());
+    REQUIRE(report.value().first_path.has_value());
+    const auto& path = *report.value().first_path;
+    REQUIRE(path.strongest_body.has_value());
+    CHECK(*path.strongest_body == path.anchored_body);
+    CHECK(path.anchored_body == report.value().acquisition.true_first_body.value());
+    CHECK_FALSE(path.precursor_search);
+}
+
 TEST_CASE("At 1000 ppm Part 3's loop slips and the committed receiver learns the clock", "[runner][chain][clock]")
 {
     auto spec = walkthrough_spec();

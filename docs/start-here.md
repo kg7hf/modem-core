@@ -2,7 +2,7 @@
 
 This repository is the transmit side of a MIL-STD-188-110A/B serial-tone HF modem
 (everything between a message and the audio a radio puts on the air) and the first
-stages of its receiver, the front end and acquisition. This page is the map. It shows the big picture, walks the
+stages of its receiver: the front end, acquisition and the earliest-path anchor. This page is the map. It shows the big picture, walks the
 transmit chain in the order the data flows, lists which file does what, and suggests a
 reading order. It closes with the receive side so far and a look ahead at the next
 stage.
@@ -83,11 +83,12 @@ What ships today, and where each piece is explained.
 | Interleaver | `m110a/interleaver.*` | demapper and deinterleaver explainer |
 | K=7 convolutional encoders | `common/fec/convolutional_k7.*` | body waveform explainer (worked example) |
 | Mode tables | `common/waveform/waveform.*` | body waveform explainer |
-| Root-raised-cosine pulse | `common/dsp/timing_recovery.*` | transmitter explainer, section 8 |
+| Root-raised-cosine pulse: the transmitter's table, the receiver's design | `m110a/body_shaping_pulse.hpp` (made by `tools/generate_shaping_pulse.py`); `common/dsp/timing_recovery.*` | body waveform explainer; transmitter explainer, section 8 |
 | Receive front end: mix down, matched filter, symbol timing | `m110a/body_audio_stream_frontend.*` | the audio front end article and explainer |
 | Carrier tracking | `common/dsp/timing_recovery.*` | the audio front end article and explainer |
 | Acquisition: find the burst, read its mode and countdown | `m110a/synchronization.*` | the acquisition article and explainer |
 | The front end's phase search and rate integrator | `m110a/body_audio_stream_frontend.*` | the acquisition article; the audio front end explainer |
+| Earliest-path anchoring: the first path, not the strongest | `m110a/synchronization.*` | the first path article; the acquisition explainer |
 | Shared vocabulary: `Real`, units, status and results, bit spans | `common/*`, `common/units/*` | the comments in each header |
 
 The demo and the golden-waveform test are [`tests/tx_demo.cpp`](../tests/tx_demo.cpp);
@@ -95,7 +96,10 @@ the transmit chain's unit tests are
 [`tests/transmit_chain_tests.cpp`](../tests/transmit_chain_tests.cpp); the front end's demo and unit tests are [`tests/front_end_demo.cpp`](../tests/front_end_demo.cpp)
 and [`tests/front_end_tests.cpp`](../tests/front_end_tests.cpp), and acquisition's are
 [`tests/acquisition_demo.cpp`](../tests/acquisition_demo.cpp) and
-[`tests/acquisition_tests.cpp`](../tests/acquisition_tests.cpp); each pair shares the
+[`tests/acquisition_tests.cpp`](../tests/acquisition_tests.cpp), and the first path's are
+[`tests/first_path_demo.cpp`](../tests/first_path_demo.cpp) and
+[`tests/first_path_tests.cpp`](../tests/first_path_tests.cpp), on the article's recordings
+(configure with `-DMODEM_ARTICLE_DATA=ON`); each pair shares the
 walkthrough steps in [`tests/walkthrough/`](../tests/walkthrough/) and the test bench in
 [`tests/support/`](../tests/support/). The runner, [`tests/runner.cpp`](../tests/runner.cpp),
 runs every stage so far end to end on your own message or a WAV file; its tests are
@@ -133,6 +137,9 @@ the receiver articles.
 7. The [acquisition article](articles/05-acquisition.md), then its
    [explainer](../modem/m110a/synchronization-and-acquisition-explainer.md), with
    `acquisition_demo` running the same way. Then run `runner` on a message of your own.
+8. The [first path article](articles/06-first-path.md), with `first_path_demo` running on the
+   article's recordings (configure with `-DMODEM_ARTICLE_DATA=ON`), then the acquisition
+   explainer's sections on the anchoring.
 
 Each explainer follows a common shape: a 50,000-foot view, a 5th-grade version, where
 the module sits in the pipeline, a function-by-function walkthrough, a small worked
@@ -142,27 +149,27 @@ debugging, and notes for maintainers.
 Then do what the [transmit-chain article](articles/03-transmit-chain.md) asks: open the
 standard beside the code and check the numbers yourself.
 
-## The receive side so far, and next: the first path
+## The receive side so far, and next: the equalizer
 
 The transmitter is the easy half; everything about its signal is known in advance. The
 receiver starts with none of that. Here is the receive chain at the level the
-introduction describes it. The front end and acquisition are here now; the earliest-path
-anchor is next.
+introduction describes it. The front end, acquisition and the earliest-path anchor are here
+now; the delay-spread estimate and the equalizer are next.
 
 ```mermaid
 flowchart TD
   A["48 kHz mono audio in"] --> B["Front end: mix to baseband + RRC matched filter + symbol timing (Part 3)"]
   B --> C["Acquisition: find the preamble, read the mode and countdown, locate the body (Part 4)"]
   C --> C2["Earliest-path anchor: start on the first path, not its echo (Part 5)"]
-  C2 --> D["Delay-spread estimate -> choose the equalizer geometry"]
-  D --> E["Equalize: adaptive DFE / CIR-MMSE / turbo (host)"]
+  C2 --> D["Delay-spread estimate -> choose the equalizer geometry (Part 6)"]
+  D --> E["Equalize: adaptive DFE / CIR-MMSE / turbo (host) (Part 6)"]
   E --> F["Dewhiten + soft-demap: 8-PSK symbol -> soft bits (LLRs)"]
   F --> G["Deinterleave: channel order -> encoder order"]
   G --> H["Repetition combine (300 / 150 bps)"]
   H --> I["FEC decode: continuous Viterbi / SISO (turbo)"]
   I --> J["EOM search + framing -> payload octets"]
   classDef next stroke-width:3px;
-  class C2 next;
+  class D,E next;
 ```
 
 The [audio front end article](articles/04-audio-front-end.md) covers the first stage.
@@ -174,14 +181,15 @@ equalizer gives it decisions. The [acquisition article](articles/05-acquisition.
 covers the second stage. [`synchronization.cpp`](../modem/m110a/synchronization.cpp) finds
 the preamble in the front end's symbols, measures the carrier offset, reads the mode and
 the countdown, and works out where the body starts; the front end gained a phase search
-and a rate integrator for the clock. On one path that is the whole story. On two, each path
-delivers its own copy of the preamble, and the strongest copy is not always the first.
-Think about these before the next article:
+and a rate integrator for the clock. On one path that is the whole story. The
+[first path article](articles/06-first-path.md) covers two: each path delivers its own copy
+of the preamble, and the receiver anchors on the first within the equalizer's reach, not
+the strongest, even when the scan formed no group for it. Think about these before the
+next article:
 
-1. A 2 ms echo arrives how many symbols after the direct path? In Step 4's comb of
-   matches, what would a second path of equal strength add?
-2. `strongest_group()` picks the group the most segments support. If the echo is the
-   stronger path for most of the preamble, which group wins, and where does the
-   equalizer start?
-3. A path can fade out through the segments the scan sees first and form no group of its
-   own. How else could the receiver find it?
+1. The echo arrives 12 symbols behind the anchor. How many taps half a symbol apart does
+   an equalizer need to reach it, and what sets that number before training?
+2. The known symbols after each frame of data are 16 or 20 long. Why does that bound how
+   long a channel the equalizer can follow?
+3. When one path fades, what should happen to the equalizer's taps for it, and how fast
+   do they have to move to follow a 5 Hz fade?

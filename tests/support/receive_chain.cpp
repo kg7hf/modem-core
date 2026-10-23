@@ -67,7 +67,38 @@ struct Line
 {
     std::vector<float> audio{};
     std::optional<BurstTruth> burst{}; // first_sample counts transmit samples from the line's start
+    // With a second path (fading), where the direct path lands: the bench's own
+    // locator, run on the line through the clock offset alone, so a stronger echo cannot pull it.
+    std::optional<std::size_t> direct_first_preamble{};
 };
+
+// How one pass of the front end over the line is set up. Neither, and the loop is Part 3's.
+// The phase search alone is the front end as a receiver runs it while it looks for a preamble.
+// With a commit, from that stream sample on the search is off and the rate integrator tracks,
+// as a receiver runs it once it has committed to a burst (Part 4).
+struct FrontEndPlan
+{
+    bool phase_search{};
+    std::optional<std::uint64_t> commit_sample{};
+};
+
+Status run_front_end(FrontEndRunner& runner, std::span<const float> audio, const FrontEndPlan& plan)
+{
+    FrontEndOptions options;
+    options.phase_search = plan.phase_search;
+    if (plan.commit_sample)
+    {
+        options.phase_search_off_at_sample = plan.commit_sample;
+        options.timing_integral_gain = BodyAudioStreamFrontend::default_timing_integral_gain;
+        options.timing_rate_changes.push_back({.at_sample = *plan.commit_sample, .mode = TimingRateMode::tracking});
+    }
+    auto status = runner.initialize(options);
+    if (status.is_ok())
+    {
+        status = runner.feed(audio);
+    }
+    return status;
+}
 
 // Part 2 and the channel: the message through the transmitter, half a second of line in
 // front of it, then what the air does to both.
@@ -98,6 +129,25 @@ Result<Line> transmit(const ChainSpec& spec, ChainReport& report)
     line.audio.insert(line.audio.end(), waveform.audio.begin(), waveform.audio.end());
     line.burst->first_sample += lead_samples;
     report.lead_samples = lead_samples;
+    if (spec.channel.fading)
+    {
+        auto direct = line.audio;
+        ChannelSpec clock_only;
+        clock_only.clock_ppm = spec.channel.clock_ppm;
+        FrontEndRunner runner;
+        auto status = clock_only.clock_ppm ? apply_channel(direct, clock_only) : Status::success();
+        if (status.is_ok())
+        {
+            status = run_front_end(runner, direct, FrontEndPlan{.phase_search = true});
+        }
+        if (!status.is_ok())
+        {
+            return status;
+        }
+        const auto clock_ppm = spec.channel.clock_ppm.value_or(0.0F);
+        const auto burst_sample = round_to<std::uint64_t>(as_real(line.burst->first_sample) / (1.0F + clock_ppm * 1.0e-6F));
+        line.direct_first_preamble = narrow<std::size_t>(locate_burst(runner, *line.burst, burst_sample));
+    }
     if (const auto status = apply_channel(line.audio, spec.channel); !status.is_ok())
     {
         return status;
@@ -120,34 +170,6 @@ Result<Line> record(const std::string& path)
     Line line;
     line.audio = std::move(wav.value().samples);
     return line;
-}
-
-// How one pass of the front end over the line is set up. Neither, and the loop is Part 3's.
-// The phase search alone is the front end as a receiver runs it while it looks for a preamble.
-// With a commit, from that stream sample on the search is off and the rate integrator tracks,
-// as a receiver runs it once it has committed to a burst (Part 4).
-struct FrontEndPlan
-{
-    bool phase_search{};
-    std::optional<std::uint64_t> commit_sample{};
-};
-
-Status run_front_end(FrontEndRunner& runner, std::span<const float> audio, const FrontEndPlan& plan)
-{
-    FrontEndOptions options;
-    options.phase_search = plan.phase_search;
-    if (plan.commit_sample)
-    {
-        options.phase_search_off_at_sample = plan.commit_sample;
-        options.timing_integral_gain = BodyAudioStreamFrontend::default_timing_integral_gain;
-        options.timing_rate_changes.push_back({.at_sample = *plan.commit_sample, .mode = TimingRateMode::tracking});
-    }
-    auto status = runner.initialize(options);
-    if (status.is_ok())
-    {
-        status = runner.feed(audio);
-    }
-    return status;
 }
 
 // The loop through a generated burst's body, against the transmitter's grid.
@@ -204,12 +226,22 @@ Status acquire(const ChainSpec& spec, const Line& line, ChainReport& report)
     const auto& found = acquired.value();
     acquisition.acquired = found;
 
+    // Part 5: the same symbols without the earliest-path anchoring, for the group it started from.
+    auto strongest_only = acquisition_config();
+    strongest_only.anchor_earliest_path = false;
+    const auto strongest = acquire_body_preamble(symbols, strongest_only);
+    report.first_path = FirstPathReport{.strongest_body = strongest ? std::optional{strongest.value().first_body_symbol} : std::nullopt,
+                                        .anchored_body = found.first_body_symbol,
+                                        .precursor_search = found.anchor.reanchored,
+                                        .precursor_lag = found.anchor.reanchored_lag,
+                                        .precursor_fraction = found.anchor.precursor_fraction};
+
     const auto clock_ppm = spec.channel.clock_ppm.value_or(0.0F);
     std::size_t body_end = symbols.size();
     if (line.burst)
     {
         const auto burst_sample = round_to<std::uint64_t>(as_real(line.burst->first_sample) / (1.0F + clock_ppm * 1.0e-6F));
-        const auto first = narrow<std::size_t>(locate_burst(search, *line.burst, burst_sample));
+        const auto first = line.direct_first_preamble.value_or(narrow<std::size_t>(locate_burst(search, *line.burst, burst_sample)));
         acquisition.true_first_preamble = first;
         acquisition.true_first_body = first + line.burst->preamble_symbols;
         body_end = std::min(body_end, first + line.burst->tribits.size());
@@ -472,7 +504,27 @@ void print(const ChainReport& report)
     {
         print_grid(*acquisition.grid);
     }
-    std::println("== next: the first path (Part 5)");
+
+    if (report.first_path)
+    {
+        const auto& path = *report.first_path;
+        std::println("== Part 5  the first path: the strongest group has the body from symbol {}", path.strongest_body ? std::to_string(*path.strongest_body) : std::string{"(none)"});
+        if (!path.strongest_body || *path.strongest_body == path.anchored_body)
+        {
+            std::println("           earliest-path anchoring kept it: no earlier path in the window");
+        }
+        else if (path.precursor_search)
+        {
+            std::println("           earliest-path anchoring moved it {} symbols earlier, to a path the scan never grouped ({:.2f} of the anchor's power)", path.precursor_lag,
+                         path.precursor_fraction);
+        }
+        else
+        {
+            const auto moved = narrow<std::ptrdiff_t>(*path.strongest_body) - narrow<std::ptrdiff_t>(path.anchored_body);
+            std::println("           earliest-path anchoring moved it {} symbols earlier, to an earlier group", moved);
+        }
+    }
+    std::println("== next: the equalizer (Part 6)");
 }
 
 } // namespace modem_test

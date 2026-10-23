@@ -13,10 +13,12 @@
 
 #include "modem/common/bits.hpp"
 #include "modem/common/convert.hpp"
+#include "modem/common/dsp/timing_recovery.hpp"
 #include "modem/common/fec/convolutional_k7.hpp"
 #include "modem/common/types.hpp"
 #include "modem/common/units/rates.hpp"
 #include "modem/common/waveform/waveform.hpp"
+#include "modem/m110a/body_shaping_pulse.hpp"
 #include "modem/m110a/body_waveform.hpp"
 #include "modem/m110a/demapper.hpp"
 #include "modem/m110a/interleaver.hpp"
@@ -108,6 +110,26 @@ std::uint64_t fnv1a(std::span<const std::uint8_t> values)
     {
         hash ^= value;
         hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+// FNV-1a over the audio's float bits, four octets a sample, least significant first: the hash
+// is the same on two builds only when every sample is the same float.
+std::uint64_t fnv1a_bits(std::span<const float> samples)
+{
+    constexpr unsigned octet_bits = 8U;
+    constexpr unsigned float_bits = 32U;
+    constexpr std::uint32_t octet_mask = 0xFFU;
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (const auto sample : samples)
+    {
+        const auto bits = std::bit_cast<std::uint32_t>(sample);
+        for (unsigned shift = 0U; shift < float_bits; shift += octet_bits)
+        {
+            hash ^= (bits >> shift) & octet_mask;
+            hash *= 1099511628211ULL;
+        }
     }
     return hash;
 }
@@ -377,4 +399,34 @@ TEST_CASE("Walk: the whole Hi burst matches its golden values", "[transmit][walk
     CHECK(std::fabs(rendered.audio[0] - 0.39122F) < 0.000005F);
     CHECK(std::fabs(rendered.audio[1] - 0.45497F) < 0.000005F);
     CHECK(std::fabs(rendered.audio[2] - 0.49206F) < 0.000005F);
+}
+
+// --- The same bits on every build ---
+
+TEST_CASE("The shaping pulse is a table of exact values and the same pulse the design gives", "[transmit][pulse]")
+{
+    const std::span<const float> pulse{::modem::m110a::body_shaping_pulse};
+    std::vector<float> designed(pulse.size());
+    REQUIRE(::modem::common::make_root_raised_cosine_taps(::modem::m110a::body_audio_samples_per_symbol, 0.25F, designed).is_ok());
+
+    double energy = 0.0;
+    float largest_difference = 0.0F;
+    for (std::size_t tap = 0U; tap < pulse.size(); ++tap)
+    {
+        CHECK(pulse[tap] == pulse[pulse.size() - 1U - tap]);
+        energy += static_cast<double>(pulse[tap]) * static_cast<double>(pulse[tap]);
+        largest_difference = std::max(largest_difference, std::fabs(pulse[tap] - designed[tap]));
+    }
+    CHECK(std::fabs(energy - 1.0) < 1.0e-6);
+    // The run-time design, in float through the platform's sin and cos, lands within a few
+    // float steps of the exact values.
+    CHECK(largest_difference < 1.0e-6F);
+}
+
+TEST_CASE("The whole Hi burst's audio is the same bits on every build", "[transmit][golden]")
+{
+    const auto rendered = render_hi();
+    const auto hash = fnv1a_bits(rendered.audio);
+    std::println("{} samples, audio FNV-1a {:016x}", rendered.audio.size(), hash);
+    CHECK(hash == 0x9d5ed45cf36ac435ULL);
 }

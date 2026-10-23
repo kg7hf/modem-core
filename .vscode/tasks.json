@@ -80,6 +80,21 @@
       "problemMatcher": []
     },
     {
+      "label": "Run first_path_demo",
+      "type": "process",
+      "dependsOn": "Build",
+      "command": "${command:cmake.buildDirectory}/first_path_demo",
+      "windows": {
+        "command": "${command:cmake.buildDirectory}/first_path_demo.exe"
+      },
+      "args": [],
+      "options": {
+        "cwd": "${command:cmake.buildDirectory}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
       "label": "Run runner",
       "type": "process",
       "dependsOn": "Build",
