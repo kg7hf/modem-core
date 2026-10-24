@@ -4,6 +4,19 @@ This repository is a teaching project, and its tooling is part of what it teache
 Every CI job checks a claim the articles make about the code, and you can run every
 gate locally with the same switches CI uses.
 
+## Contributing a change
+
+Fork this public repository, clone your fork with `git clone --recurse-submodules`,
+and create a branch. Make the change with a regression test, run the checks below,
+then push the branch and open a pull request against `kg7hf/modem-core` main.
+Include the commands, compiler, results and any data version you tested. You need
+no private repository access, hardware, GitHub token or paid CI service to run
+these public tests. An existing clone can initialize Catch2 with
+`git submodule update --init --recursive`.
+
+See [the testing quick start](docs/testing.md) for native and Docker commands,
+release data, CI selection and the separate maintainer hardware review.
+
 ## Build
 
 ```bash
