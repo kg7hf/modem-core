@@ -2,6 +2,9 @@
 
 [![CI](https://github.com/kg7hf/modem-core/actions/workflows/ci.yml/badge.svg)](https://github.com/kg7hf/modem-core/actions/workflows/ci.yml)
 
+[Contributor testing: native, Docker and release data](docs/testing.md) ·
+[Contributing a change](CONTRIBUTING.md)
+
 A real, standards-compliant **MIL-STD-188-110A/B serial-tone HF modem** written in
 modern C++ (C++23), small enough to cross-compile onto a microcontroller. This
 repository is the **transmit side** and the first stages of the **receiver**, published
