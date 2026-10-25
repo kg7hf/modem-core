@@ -17,6 +17,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Public test suite (full is not private compliance)
+        type: choice
+        options: [quick, article, full]
+        default: full
 
 permissions:
   contents: read
@@ -25,6 +31,7 @@ jobs:
   build-test:
     name: build + golden tests (${{ matrix.compiler }})
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -33,6 +40,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true # Catch2, the unit-test framework (external/catch2)
+          persist-credentials: false
       # Clang 19, not 18: libstdc++ only enables std::expected for a compiler that
       # reports full C++20 concepts, and Clang 18 does not.
       - name: Install toolchain
@@ -44,10 +52,23 @@ jobs:
           else
             echo "CXX=clang++-19" >> "$GITHUB_ENV"
           fi
-      - run: cmake -B build -G Ninja -DMODEM_WERROR=ON
-      - run: cmake --build build
-      - name: Golden tests and unit tests
-        run: ctest --test-dir build --output-on-failure
+      - name: Shared contributor tests
+        env:
+          SUITE: ${{ github.event_name == 'workflow_dispatch' && inputs.suite || (github.event_name == 'push' && 'full' || 'quick') }}
+        run: cmake -DSUITE="$SUITE" -DJOBS=2 -P tools/test.cmake
+
+  contributor-container:
+    name: Docker contributor environment and article recordings
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+      - run: docker build -t modem-core-dev .
+      - name: Anonymous release download and recording tests
+        run: docker run --rm --cpus=2 --memory=4g --mount "type=bind,source=$PWD,target=/src" modem-core-dev -DSUITE=article -DJOBS=2 -P tools/test.cmake
 
   format:
     name: clang-format

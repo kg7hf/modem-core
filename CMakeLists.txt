@@ -221,6 +221,9 @@ endif()
 #     samples, printed to five decimals; the transmit tests check every sample's
 #     bits, as a hash of the whole burst's audio. ---
 enable_testing()
+add_test(NAME article_pack_validation COMMAND ${CMAKE_COMMAND}
+    "-DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/article-pack-validation"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/article_pack_validation.cmake")
 add_test(NAME tx_golden COMMAND tx_demo Hi)
 set_tests_properties(tx_golden PROPERTIES
     PASS_REGULAR_EXPRESSION "rendered 460800 samples.*first: 0\\.39122 0\\.45497 0\\.49206")
