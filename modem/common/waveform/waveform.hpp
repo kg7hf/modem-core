@@ -99,13 +99,16 @@ struct WaveformConfig
     ChannelSidebandPolicy channel0_policy{ChannelSidebandPolicy::detect};
 };
 
+// The serial tone's symbol rate, 2400 Bd.
+inline constexpr std::uint32_t common_symbol_rate_baud = 2400U;
+
 struct WaveformDescriptor
 {
     WaveformFamily family{};
     DataRate data_rate{};
     Modulation modulation{};
     FecProfile fec{};
-    std::uint32_t symbol_rate_baud{2400U};
+    std::uint32_t symbol_rate_baud{common_symbol_rate_baud};
     std::uint8_t bits_per_symbol{};
     std::uint8_t information_bits_per_channel_symbol{};
     std::uint8_t orthogonal_spreading_factor{1U};

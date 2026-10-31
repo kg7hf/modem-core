@@ -30,7 +30,9 @@ inline constexpr Real two_pi = Real{2} * pi;
 // Bit-identical to every spelling used in the tree: 2.0F * pi, 6.2831853071795864769F and
 // 6.28318530717958647692F all round to this float, so a site swapping its local copy for
 // this constant is byte-exact.
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers): these assertions check exact IEEE-754 bit patterns
 static_assert(std::bit_cast<std::uint32_t>(pi) == 0x40490FDBU);     // the float nearest pi
 static_assert(std::bit_cast<std::uint32_t>(two_pi) == 0x40C90FDBU); // exact exponent bump of pi
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
 
 } // namespace modem::common
