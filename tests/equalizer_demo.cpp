@@ -94,6 +94,13 @@ int main(int argc, char** argv)
     ok = show(adaptive(pack.value(), diagnostic), diagnostic) && ok;
 
     // 5. Measuring the channel: the CIR-MMSE equalizer through the same body.
+    // Steps 5 and 6 need the CIR-MMSE engine, which an embedded build leaves out.
+    if (!::modem::m110a::body_receiver_engine_available(BodyDataEqualizer::cir_mmse))
+    {
+        std::println("\n5 and 6: this build leaves the CIR-MMSE engine out (M110_BODY_RECEIVER_CIR_ENGINE=OFF)");
+        return ok ? 0 : 1;
+    }
+
     std::println("\n5. Measuring the channel");
     ok = show(cir_mmse(pack.value(), diagnostic), diagnostic) && ok;
 

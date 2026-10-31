@@ -42,11 +42,13 @@ Burst clean_burst()
     return std::move(burst.value());
 }
 
+#if M110_BODY_RECEIVER_CIR_ENGINE
 float error_rate(const Body& body)
 {
     REQUIRE(body.data_symbols > 0U);
     return ::modem::common::as_real(body.data_errors) / ::modem::common::as_real(body.data_symbols);
 }
+#endif
 
 } // namespace
 
@@ -66,6 +68,11 @@ TEST_CASE("On a clean burst both engines decide every data symbol right", "[equa
     const auto burst = clean_burst();
     for (const auto engine : {BodyDataEqualizer::adaptive, BodyDataEqualizer::cir_mmse})
     {
+        // An embedded build leaves the CIR-MMSE engine out; the adaptive one is always there.
+        if (!::modem::m110a::body_receiver_engine_available(engine))
+        {
+            continue;
+        }
         auto trained = train(burst, engine);
         REQUIRE(trained.has_value());
         const auto body = walk_body(burst, trained.value());
@@ -120,6 +127,8 @@ TEST_CASE("On the 5 ms recording training tries more than acquisition's frequenc
     CHECK(race.residual[race.winner] <= race.residual[0]);
 }
 
+// The two cases that compare the engines need the CIR-MMSE engine compiled in.
+#if M110_BODY_RECEIVER_CIR_ENGINE
 TEST_CASE("Through the 5 ms body the adaptive equalizer decides fewer data symbols wrong than CIR-MMSE", "[recordings]")
 {
     std::string diagnostic;
@@ -159,3 +168,4 @@ TEST_CASE("On the 5 ms recording each engine has frames where it trails the othe
         }
     }
 }
+#endif

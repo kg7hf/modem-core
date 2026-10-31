@@ -198,6 +198,11 @@ if(MODEM_BUILD_TESTS)
     target_compile_definitions(equalizer_walkthrough_tests PRIVATE MODEM_FIRST_PATH_DATA="${PROJECT_SOURCE_DIR}/test-data/first-path-v1")
     modem_copy_runtime(equalizer_walkthrough_tests)
 
+    # Part 6: the equalizers' unit tests, on synthesized signals.
+    add_executable(equalizer_tests tests/equalizer_tests.cpp)
+    target_link_libraries(equalizer_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
+    modem_copy_runtime(equalizer_tests)
+
     add_executable(first_path_tests tests/first_path_tests.cpp tests/first_path_manifest_tests.cpp)
     target_link_libraries(first_path_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
     target_compile_definitions(first_path_tests PRIVATE MODEM_FIRST_PATH_DATA="${PROJECT_SOURCE_DIR}/test-data/first-path-v1")
@@ -223,9 +228,9 @@ endif()
 
 # --- Apply the warning/tooling flags to our own targets (GCC/Clang). ---
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    set(MODEM_OWN_TARGETS modem_core tx_demo modem_test_bench front_end_demo acquisition_demo first_path_demo runner)
+    set(MODEM_OWN_TARGETS modem_core tx_demo modem_test_bench front_end_demo acquisition_demo first_path_demo equalizer_demo runner)
     if(MODEM_BUILD_TESTS)
-        list(APPEND MODEM_OWN_TARGETS front_end_tests acquisition_tests first_path_tests runner_tests transmit_chain_tests units_tests)
+        list(APPEND MODEM_OWN_TARGETS front_end_tests acquisition_tests delay_spread_tests first_path_tests equalizer_walkthrough_tests equalizer_tests runner_tests transmit_chain_tests units_tests)
     endif()
     foreach(target ${MODEM_OWN_TARGETS})
         target_compile_options(${target} PRIVATE -Wall -Wextra)
@@ -279,6 +284,7 @@ if(MODEM_BUILD_TESTS)
     catch_discover_tests(front_end_tests TEST_SPEC "[report]" TEST_PREFIX "report: " PROPERTIES LABELS report)
     catch_discover_tests(acquisition_tests TEST_PREFIX "acquisition: ")
     catch_discover_tests(delay_spread_tests TEST_PREFIX "delay_spread: ")
+    catch_discover_tests(equalizer_tests TEST_PREFIX "equalizer_unit: ")
     catch_discover_tests(equalizer_walkthrough_tests TEST_SPEC "~[recordings]" TEST_PREFIX "equalizer: ")
     catch_discover_tests(first_path_tests TEST_SPEC "~[recordings]" TEST_PREFIX "first_path: ")
     # The recordings' tests: with the article data on, a missing or unusable package fails them.
