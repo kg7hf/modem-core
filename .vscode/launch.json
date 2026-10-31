@@ -134,11 +134,46 @@
       ]
     },
     {
+      "name": "equalizer_demo (gdb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "Build",
+      "program": "${command:cmake.buildDirectory}/equalizer_demo",
+      "windows": {
+        "program": "${command:cmake.buildDirectory}/equalizer_demo.exe"
+      },
+      "args": [],
+      "cwd": "${command:cmake.buildDirectory}",
+      "stopAtEntry": true,
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
       "name": "first_path_demo (lldb, macOS)",
       "type": "cppdbg",
       "request": "launch",
       "preLaunchTask": "Build",
       "program": "${command:cmake.buildDirectory}/first_path_demo",
+      "args": [],
+      "cwd": "${command:cmake.buildDirectory}",
+      "stopAtEntry": true,
+      "externalConsole": false,
+      "MIMode": "lldb"
+    },
+    {
+      "name": "equalizer_demo (lldb, macOS)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "Build",
+      "program": "${command:cmake.buildDirectory}/equalizer_demo",
       "args": [],
       "cwd": "${command:cmake.buildDirectory}",
       "stopAtEntry": true,

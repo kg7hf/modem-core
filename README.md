@@ -72,6 +72,8 @@ ctest --test-dir build    # the golden tests and the unit tests
 ./build/front_end_demo                                      # Part 3, step by step
 ./build/acquisition_demo                                    # Part 4, step by step
 ./build/first_path_demo                                     # Part 5, on the article's recordings (-DMODEM_ARTICLE_DATA=ON)
+./build/equalizer_demo                                      # Part 6, on the same recordings
+./build/equalizer_compare                                   # Part 6, the two equalizers on the same bursts
 ./build/runner "Hi" --snr 10 --carrier 37                   # every stage so far, on your message
 ```
 
@@ -79,7 +81,7 @@ In a clone made without `--recurse-submodules`, run `git submodule update --init
 once. To build only the modem and `tx_demo`, configure with `-DMODEM_BUILD_TESTS=OFF`.
 
 Prefer an editor? Open the folder in VS Code: the CMake presets, build and run tasks,
-and debug configurations for `tx_demo`, `front_end_demo`, `acquisition_demo`, `first_path_demo`, the runner and
+and debug configurations for `tx_demo`, `front_end_demo`, `acquisition_demo`, `first_path_demo`, `equalizer_demo`, the runner and
 the transmit-chain tests are included, and the Testing panel lists every unit test to run or debug (see
 [CONTRIBUTING.md](CONTRIBUTING.md#vs-code)).
 
@@ -99,10 +101,10 @@ to run any of them locally.
 ## What's coming
 
 The receiver is the hard half, and it is its own series; the audio front end and
-acquisition and the earliest-path anchor are its first stages. You will find the rest of the receiver **declared** in
+acquisition, the earliest-path anchor and the equalizer are its first stages. You will find the rest of the receiver **declared** in
 the headers here (the Viterbi decoder, the soft demapper, the block decoder) with their
 design notes intact, but not yet implemented; they arrive with the receiver articles,
-which cover the equalizer and the burst decoder next. This
+which cover soft demapping and the decoder next. This
 repository grows with the series, and so does the runner: each article adds its stage.
 
 ## License

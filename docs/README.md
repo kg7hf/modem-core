@@ -18,7 +18,9 @@ HF Modem in Modern C++":
 
 - [The first path](articles/06-first-path.md): earliest-path anchoring; why the receiver anchors on the first path and not the strongest, how it finds a path the scan never grouped, the window that follows the equalizer, the recordings its walkthrough runs on, and the second part on testing.
 
-The next article, the equalizer, joins here when it publishes.
+- [The equalizer](articles/07-equalizer.md): how far behind the anchor the channel reaches, the window sized from that, training on the preamble, and two ways to undo the channel: the adaptive decision-feedback equalizer that follows it and the CIR-MMSE equalizer that measures it; what each does on the same recordings, and the third part on testing, the genie.
+
+The next article, soft demapping and the decoder, joins here when it publishes.
 
 ## Code-level walkthroughs
 
@@ -32,10 +34,14 @@ The transmit stages have detailed explainers next to their source:
 The receiver's stages have them too:
 
 - [`audio-front-end-explainer.md`](../modem/m110a/audio-front-end-explainer.md): the streaming front end (mix, matched filter, symbol timing, and from Part 4 the phase search and the rate integrator) and the carrier tracker.
-- [`synchronization-and-acquisition-explainer.md`](../modem/m110a/synchronization-and-acquisition-explainer.md): acquisition; the prefix reference, the carrier estimate, the block correlation, reading the mode and the countdown, the groups and the vote, and from Part 5 the earliest-path anchoring.
+- [`synchronization-and-acquisition-explainer.md`](../modem/m110a/synchronization-and-acquisition-explainer.md): acquisition; the prefix reference, the carrier estimate, the block correlation, reading the mode and the countdown, the groups and the vote, from Part 5 the earliest-path anchoring, and from Part 6 the delay-spread estimate.
+- [`receiver-core-equalizer-explainer.md`](../modem/m110a/receiver-core-equalizer-explainer.md): the equalizer; the window, training and the frequency race, the adaptive decision-feedback equalizer frame by frame, and the CIR-MMSE equalizer's channel estimate and solve.
 
 The unit tests in [`tests/front_end_tests.cpp`](../tests/front_end_tests.cpp) and
 [`tests/acquisition_tests.cpp`](../tests/acquisition_tests.cpp) and
-[`tests/first_path_tests.cpp`](../tests/first_path_tests.cpp) show each piece working, and
+[`tests/first_path_tests.cpp`](../tests/first_path_tests.cpp) and
+[`tests/delay_spread_tests.cpp`](../tests/delay_spread_tests.cpp),
+[`tests/equalizer_tests.cpp`](../tests/equalizer_tests.cpp) and
+[`tests/equalizer_walkthrough_tests.cpp`](../tests/equalizer_walkthrough_tests.cpp) show each piece working, and
 [`tests/runner.cpp`](../tests/runner.cpp) runs the stages end to end. The rest of the
 receiver is declared in the headers and arrives with the receiver series.

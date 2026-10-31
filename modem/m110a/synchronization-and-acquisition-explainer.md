@@ -16,6 +16,11 @@ This note explains the receiver's second stage:
   group of its own, and the receiver anchors on the first path within the equalizer's
   reach, not the strongest. Its diagnostics (`BodyAnchorDiagnostics`) and the reference's
   own sidelobe model (`body_precursor_sidelobe_powers`) are public too.
+- The **delay-spread estimate** (`estimate_body_preamble_delay_spread`, with its
+  diagnostic `BodyDelaySpreadProfile`): how far behind the anchor the channel reaches, in
+  whole symbols, measured on the preamble, so the equalizer's window can be sized before it
+  trains on the body. Each significant echo's own sidelobes are cancelled
+  (`cancel_echo_sidelobes`, internal) before the scan for the largest significant lag.
 
 Two additions to the front end belong with this stage, because a receiver turns them on
 and off around acquisition: the **phase search** and the **rate integrator** in
@@ -23,10 +28,12 @@ and off around acquisition: the **phase search** and the **rate integrator** in
 `modem/m110a/audio-front-end-explainer.md`, sections 6 and 9, and walked through in Steps
 11 to 14 below.
 
-The unit tests are in `tests/acquisition_tests.cpp` and `tests/first_path_tests.cpp`, and
-the article series explains the design in Part 4, "Acquisition: finding the burst", and
-Part 5, "The first path". Nothing here decodes a payload bit:
-the output is the reference the equalizer and the decoder start from.
+The unit tests are in `tests/acquisition_tests.cpp`, `tests/first_path_tests.cpp` and
+`tests/delay_spread_tests.cpp`, and the article series explains the design in Part 4,
+"Acquisition: finding the burst", Part 5, "The first path", and Part 6, "The equalizer"
+(the delay spread). Nothing here decodes a payload bit: the output is the reference the
+equalizer and the decoder start from, and the measurement the equalizer's window is sized
+from.
 
 ---
 
@@ -44,6 +51,7 @@ What is the carrier phase?           -> the angle of the coherent correlation
 Which mode is it?                    -> the D1/D2 designators
 How many segments until the body?    -> the C1/C2/C3 countdown
 Where does the body begin?           -> the countdown, counted forward
+How far does the channel reach?      -> lag power behind the anchor (the delay spread)
 ```
 
 The preamble is made of **segments** of 480 symbols (0.2 s), each 15 "channel symbols"
@@ -59,6 +67,13 @@ survivors by the burst they describe, takes the group the most segments support,
 anchor to the earliest path of the same burst (a group the scan formed a few symbols
 earlier, or a path it never grouped, found across every segment), and lets every segment
 of the preamble vote on the mode and the boundary. The result is one `BodyAcquisition`.
+
+With the anchor set, the delay-spread estimate correlates the prefix at lags 0 to 15
+behind it, adds the power of every preamble segment, takes out the prefix's own sidelobes
+and then each echo's, and returns the largest lag whose power is still significant: 0 for
+one path, 12 for a 5 ms echo. The equalizer's window is chosen from that number
+(`select_body_receiver_geometry`, explained in
+`modem/m110a/receiver-core-equalizer-explainer.md`).
 
 ---
 
@@ -79,6 +94,13 @@ said.
 
 In a room with an echo you hear every jingle twice, a moment apart, and sometimes the echo
 is the louder one. You listen to the first: the echo only ever repeats it.
+
+Then you work out how long the echoes keep coming after the first jingle, the way you clap
+once in a big room and time the echoes, so you bring a cleanup tool the right size for the
+room. The jingle has a bit in it that repeats, so part of what you hear right after each
+copy is that bit again, not a new echo. You subtract what the jingle alone would sound
+like before you count, and you count the last echo that is still loud enough, not the
+loudest one.
 
 ---
 
@@ -108,13 +130,27 @@ is the louder one. You listen to the first: the echo only ever repeats it.
   │ 6. vote_mode_and_boundary  again, on the new anchor's segments       │
   └──────────────────────────────────────────────────────────────────────┘
      │ BodyAcquisition {preamble start, body start, carrier, phase, mode}
+     ▼  estimate_body_preamble_delay_spread()          THIS MODULE (Part 6)
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │ the prefix at lags 0..15 behind the anchor, power over every segment │
+  │ the prefix's own sidelobes out, then each echo's (cancel_echo_...)   │
+  │ the largest lag from 3 on still at 1/8 of the strongest              │
+  └──────────────────────────────────────────────────────────────────────┘
+     │ delay spread, in symbols
      ▼
-  equalizer, carrier tracker, deinterleaver, decoder   (later articles)
+  equalizer: its window from select_body_receiver_geometry (Part 6),
+  then the deinterleaver and the decoder                (later articles)
 ```
+
+The receiver measures the delay spread after its first preamble training, with the carrier
+frequency that training kept, and trains again only when the measurement selects a
+different window. The equalizer explainer walks through that order.
 
 **Inputs:** symbol-rate complex baseband, at least one 480-symbol segment of it, and a
 `BodyAcquisitionConfig`. **Outputs:** a `BodyAcquisition`, or a `Status` saying why not
-(`invalid_argument` for a bad request, `unavailable` when no start passed the gates).
+(`invalid_argument` for a bad request, `unavailable` when no start passed the gates); then,
+from the same symbols and that `BodyAcquisition`, the delay spread in symbols (with an
+optional `BodyDelaySpreadProfile`), or `invalid_argument`.
 **Depends on:** `body_waveform.hpp` (the preamble's structure, `body_channel_symbol_tribit`,
 `recognize_body_designators`, `body_preamble_segments`), `scrambler.hpp`
 (`SyncRandomizer`), `demapper.hpp` (`psk8_symbol`).
@@ -128,6 +164,7 @@ is the louder one. You listen to the first: the echo only ever repeats it.
 | `BodyAcquisitionConfig` | The symbol rate (2400), the correlation floor (`minimum_correlation`, 0.75), the carrier gate (`maximum_frequency_offset_hz`, 120), how far into the buffer a start may be (`maximum_start_symbol`, 0 for anywhere), and the earliest-path anchoring: `anchor_earliest_path` (on) and its window, `anchor_minimum_path_delay_symbols` (7; the host's turbo decoder runs with 3) to `anchor_maximum_path_delay_symbols` (15). |
 | `BodyAcquisition` | The result. The preamble's first symbol, the segment the decision was read from, the body's first symbol, the countdown read there, whether the preamble's start is inside the buffer, the carrier offset (Hz) and phase, the normalized correlation, the mode (`recognition`), and the anchoring's diagnostics (`anchor`). |
 | `BodyAnchorDiagnostics` | What the precursor search saw and did: the profile at lags 0 to 15 as fractions of lag 0 (`precursor_powers`), the peaks at or above 1/8 and the earliest of them (`precursor_candidates`, `precursor_lag`, `precursor_fraction`), the segments summed, the segments the walk tried and what rejected each (`walk_rejected_frequency`, `_correlation`, `_invalid`, `_mode`), and whether the anchor moved and how far (`reanchored`, `reanchored_lag`). |
+| `BodyDelaySpreadProfile` | What the delay-spread estimate thresholded: `lag_powers`, the power at lags 0 to 15 after both sidelobe subtractions; `strongest_power`, the largest lag power before the echoes' sidelobes come out (the significance fraction is 1/8 of it); `segments`, how many preamble segments were added. Asking for it never changes the result. |
 | `BodyModeRecognition` | From `body_waveform.hpp`: `supported` with the data rate and interleave, `recognized_unsupported` (a legal pair of designators for a mode this modem does not implement), or `invalid`. |
 | `CandidateRecord` (internal) | What a group keeps of its representative: the start it was found at, its body's first symbol, its mode and its correlation. `representative_of()` rebuilds the whole member from the start, bit for bit; a whole `BodyAcquisition` carries the anchoring's diagnostics, and 32 of them would not fit the 4 KB stack bound. |
 | `AcquisitionConsensus` (internal) | One group: the candidates that agree on the body's first symbol and the mode. It keeps a representative (the member with the **highest** correlation, as a `CandidateRecord`), the number of supporting segments, the sum of their correlations and the best one. |
@@ -164,6 +201,9 @@ segment ..................... 15 channel symbols = 480 symbols = 200 ms
 short / long preamble ....... 3 segments (1440 symbols) / 24 segments (11520 symbols)
 carrier gate ................ 120 Hz = 0.314 rad per symbol
 estimator's range ........... ±1200 Hz (±π rad per symbol); past it the estimate wraps
+delay-spread search ......... lags 0 to 15 behind the anchor (6.25 ms); an echo counts
+                              from lag 3; significant at 1/8 (-9 dB) of the strongest
+2 ms / 5 ms echo ............ 4.8 / 12 symbols
 ```
 
 ---
@@ -315,6 +355,54 @@ estimator's range ........... ±1200 Hz (±π rad per symbol); past it the estim
   `anchor_earliest_path` off it returns the strongest group as the scan leaves it. It
   returns `unavailable` when no start passes all three gates.
 
+### `estimate_body_preamble_delay_spread(input, acquisition, maximum_delay_symbols, profile)`
+- **50K view:** How far behind the anchor the channel reaches, in whole symbols: 0 for one
+  path, 12 for a 5 ms echo. The caller sizes the equalizer's window from it before the
+  equalizer trains on the body.
+- **Detailed view:** At each lag 0 to `maximum_delay_symbols` (15 by default, and at most
+  15) behind the detected segment, the prefix is scored as a path is scored: nine 32-chip
+  block correlations against the reference turned by the carrier estimate, added by power.
+  The powers are summed over every segment from the detected one to the body boundary, so
+  a path that fades through one segment still counts. Three steps follow:
+  1. The prefix's own sidelobes come out. Its chip patterns repeat with period 8, so one
+     clean path also shows power at other lags, notably 8 and 9. The model is the
+     reference correlated with itself continued into the D1 block that follows the prefix,
+     scored the same way; each lag gives up `(sidelobe[lag] / sidelobe[0]) × power[0]`,
+     clamped at zero.
+  2. `cancel_echo_sidelobes` takes out each significant echo's sidelobes the same way.
+  3. The scan: from lag 15 down to lag 3, the first lag whose power reaches 1/8 (about
+     -9 dB) of the strongest is the delay spread; none gives 0. Lags 0 to 2 are the main
+     path's lobe, because a path between two symbol times splits across neighbouring lags.
+
+  It is the largest significant lag, not the strongest: the window has to reach the
+  farthest path that matters, so a strong echo at 5 symbols must not hide a weaker one at
+  12. The carrier estimate it derotates with is the one in the `BodyAcquisition` it is
+  given; the walkthrough passes the frequency the receiver's preamble training kept
+  (`selected_training_frequency_radians`), because under fading acquisition's estimate
+  can be tens of hertz off. It returns `invalid_argument` for an unsupported mode, for a
+  buffer shorter than the prefix plus the search span, and for a span past the lag table.
+  The `BodyDelaySpreadProfile`, when asked for, is a copy of what it thresholded.
+- **5th-grade view:** Clap once and time the echoes to learn how boomy the room is, so you
+  bring the right-sized cleanup tool.
+
+### `cancel_echo_sidelobes` (internal)
+- **50K view:** Takes each significant echo's own sidelobes out of the lag profile, so the
+  largest-lag scan does not read them as paths.
+- **Detailed view:** An echo casts the same period-8 sidelobes the main path does, 8 and 9
+  symbols behind itself, and the main path's subtraction leaves them in the profile: a
+  strong echo at lag 5 reads again at lag 14 at a few percent of its power, which a faded
+  burst can lift over the significance fraction. The function takes the strongest lag
+  from 3 on that has not given up its sidelobes yet; if it is significant, every lag
+  beyond it gives up `(sidelobe[lag - d] / sidelobe[0]) × its power` (d is the echo's lag),
+  clamped at zero, and the next strongest is taken. It stops at the first one under the
+  significance fraction, handles each lag at most once, and allocates nothing. Its limit:
+  a real path 9 symbols behind a strong echo has to clear the significance fraction by the
+  sidelobe's share, about 1 dB; a path 8 symbols behind survives
+  (`tests/delay_spread_tests.cpp` checks both).
+- **5th-grade view:** Every copy of the jingle has the same repeating bit in it, loud
+  copies and quiet ones alike. Before you count echoes, you cross out the repeats each
+  loud echo makes, the same way you crossed out the first jingle's.
+
 ---
 
 ## 7. Worked example
@@ -421,6 +509,36 @@ fp4  600S, 2 ms, phases 0-19  the weak direct path at 16 of 20 phases
 fp6  600L, 2 ms, phases 0-19  at all 20 (the walk reads on it where 600S's cannot)
 ```
 
+### The delay spread (Part 6's steps)
+
+`equalizer_demo` measures the delay spread on two of those recordings and on one clean
+600L burst straight from the transmitter. Each burst is received as the runner receives
+it, the receiver trains on the preamble with the default window, and the estimate runs
+with the frequency that training kept. Its first two steps:
+
+```text
+lag power behind the anchor, as a fraction of the strongest (lags 0 to 15; . under 0.05):
+fp1-echo-group  1.00    .    .    .    .    . 0.06    .    .    .    . 0.05 0.63    .    .    .
+                delay spread 12 symbols, over 8 preamble segments
+fp2-window      1.00 0.06    .    . 0.08    .    .    .    .    .    .    .    .    .    .    .
+                delay spread 0 symbols, over 21 preamble segments
+clean           1.00    .    .    .    .    .    .    .    .    .    .    .    .    .    .    .
+                delay spread 0 symbols, over 23 preamble segments
+
+fp1-echo-group  spread 12 -> 32 taps, reference tap 6: 3.0 symbols ahead, 12.5 behind, 14 feedback; trained again on it
+fp2-window      spread  0 -> 24 taps, reference tap 12: 6.0 symbols ahead, 5.5 behind, 8 feedback
+clean           spread  0 -> 24 taps, reference tap 12: 6.0 symbols ahead, 5.5 behind, 8 feedback
+```
+
+fp1 (300L, 5 ms) is anchored on its direct path, and its echo stands at lag 12, 0.63 of the
+strongest: over the 6-symbol limit of the default window, so the long window is selected
+and the receiver trains again on it. The small values at lags 6 and 11 are under 1/8 and
+do not count. fp2 (600L, 2 ms) is anchored on its echo, as Part 5 left it: its direct path
+is 4.8 symbols ahead of the anchor, not behind, so the estimate reads nothing past the
+main lobe, and the default window, which reaches 6 symbols ahead of its reference tap,
+holds the direct path. The clean burst reads 0. The equalizer explainer continues from
+here with fp1.
+
 ---
 
 ## 8. Equations and formulas
@@ -441,6 +559,16 @@ channel symbol:     Λ_ℓ(n) = Σ_{chip} r[start + 32i + chip + ℓ] · conj( e
 countdown:          D = ((C1 & 3) << 4) | ((C2 & 3) << 2) | (C3 & 3)
 body start:         detected_segment + (D + 1) · Ns
 preamble start:     detected_segment - (segments - D - 1) · Ns
+
+delay spread:       P[ℓ] = Σ_segments Σ_m | Σ_{k in block m} r[seg + ℓ + k] · conj( c[k] · exp(jωk) ) |²
+                                                                        ℓ = 0 .. 15
+                    S[ℓ] = Σ_m | Σ_{k in block m} c_ext[k + ℓ] · conj(c[k]) |²
+                           (c_ext: the prefix continued into the D1 block)
+  main path's:      P[ℓ] ← max(0, P[ℓ] - (S[ℓ]/S[0]) · P[0])           ℓ ≥ 1
+  significance:     T = P_max / 8                  (P_max taken here, before the echoes)
+  each echo's:      for echo lag d ≥ 3, strongest first, while P[d] ≥ T:
+                      P[ℓ] ← max(0, P[ℓ] - (S[ℓ-d]/S[0]) · P[d])       ℓ > d
+  result:           spread = max{ ℓ ≥ 3 : P[ℓ] ≥ T }                  (0 if none)
 ```
 
 ---
@@ -461,6 +589,13 @@ preamble start:     detected_segment - (segments - D - 1) · Ns
 | The front end hangs half a symbol off the peaks | The early-late detector's output is also zero there. | The phase search (front end), on while acquiring. Step 11. |
 | Symbols slip under a clock offset | A proportional loop needs a standing error for a standing correction. | The rate integrator (front end). Steps 12 to 14. |
 | A rich scan loses a group | More than 32 groups. | The 33rd is dropped; on a real channel the count stays small. |
+| A delay spread of 8 or 9 on a single-path channel | The prefix's own period-8 sidelobes read as an echo. | The main path's sidelobe model is subtracted before the scan. |
+| A delay spread 8 or 9 past a real echo (14 for an echo at 5) | That echo's own sidelobes, left by the main path's subtraction and lifted by a fade. | `cancel_echo_sidelobes`, strongest echo first. |
+| A real path 9 symbols behind a strong echo goes unreported | It sits where that echo's sidelobe is cancelled. | The cancellation's limit: such a path must clear the significance fraction by about 1 dB. |
+| The delay spread reports the strong near echo, and the window misses a weaker far one | Taking the strongest echo instead of the farthest significant one. | The scan runs from lag 15 down and takes the first significant lag. |
+| A path that fades in and out is missed | One segment's profile catches it at the wrong moment. | The powers are summed over every preamble segment. |
+| The delay spread reads 0 on a two-path channel | The anchor is on the later path (the direct path within the default window's reach is left there on purpose), so the other path is ahead of the anchor, not behind it. | Nothing: the default window reaches 6 symbols ahead of its reference tap. fp2 in the worked example. |
+| A profile smeared across lags, or a spread that changes from one run to the next | The estimate was derotated with a carrier estimate tens of hertz off. | Pass the frequency the preamble training kept, as the walkthrough does. |
 
 ---
 
@@ -477,11 +612,15 @@ preamble start:     detected_segment - (segments - D - 1) · Ns
 | `anchor.reanchored`, `anchor.reanchored_lag` | Whether the precursor search moved the anchor, and how far. An earlier group's move leaves `reanchored` false: compare with the result with `anchor_earliest_path` off. |
 | `anchor.precursor_powers`, `anchor.precursor_lag`, `anchor.precursor_fraction` | The profile before the anchor. A real path shows as a clear peak; the rest of the profile sits well under 1/8. |
 | `anchor.walk_segments` and the `walk_rejected_*` counts | How hard the walk looked, and which test rejected each segment. |
+| The delay spread | 0 for one path or an anchor on the later of two; about 5 for a 2 ms echo behind the anchor; 12 for a 5 ms one. Over 6 selects the long window. |
+| `BodyDelaySpreadProfile::lag_powers` / `strongest_power` | The profile the scan thresholded. A 5 ms two-path burst shows lag 0 and lag 12 well over 1/8 and little else (fp1: 1.00 and 0.63). |
+| `BodyDelaySpreadProfile::segments` | How many segments the sum covers: few when the receiver woke up late in the preamble or the burst is short-interleave. |
 
 Healthy: one match a segment, 480 symbols apart, correlations near 1, carrier estimates
-within a few hertz of each other, every segment voting for the same body start.
+within a few hertz of each other, every segment voting for the same body start, and a
+delay-spread profile with clear peaks at the channel's paths and the rest under 0.05.
 Unhealthy: matches that are not 480 apart, carrier estimates that scatter by tens of
-hertz, or votes split between body starts.
+hertz, votes split between body starts, or a profile with power spread over many lags.
 
 ---
 
@@ -503,7 +642,13 @@ hertz, or votes split between body starts.
 6. `first_path_demo` and `tests/walkthrough/first_path_steps.cpp`: Part 5's steps, on the
    article's recordings; `tests/first_path_tests.cpp` checks every recording against the
    expectations its manifest carries.
-7. `runner`: the receive chain end to end, on a message of your own or a WAV file; its
+7. `estimate_body_preamble_delay_spread` and `cancel_echo_sidelobes`, at the end of
+   `synchronization.cpp`: the same block correlation, pointed behind the anchor.
+   `tests/delay_spread_tests.cpp` runs the 600S preamble through a direct path and its
+   echoes, one case a channel.
+8. `equalizer_demo` (`tests/equalizer_demo.cpp`) and `tests/walkthrough/equalizer_steps.cpp`: Part 6's steps, the delay
+   spread first; `tests/equalizer_walkthrough_tests.cpp` checks them.
+9. `runner`: the receive chain end to end, on a message of your own or a WAV file; its
    Part 5 line says where the strongest group put the body and what the anchoring did.
 
 ---
@@ -534,11 +679,22 @@ hertz, or votes split between body starts.
   a sidelobe. The walk's correlation test is what tells them apart.
 - **The sidelobe model includes the previous segment's tail.** Without it a remainder
   stays in the profile, largest at lag 14.
+- **The delay spread is the farthest significant lag, never the strongest.** The window has
+  to reach every path that matters; a strong echo at 5 symbols with a weaker one at 12
+  needs the long window (`tests/delay_spread_tests.cpp` checks that case and its profile).
+- **Both sidelobe subtractions stay.** Without the main path's, a single path reads a
+  spread of 8 or 9; without the echoes', an echo at d reads again at d + 8 or d + 9, and a
+  strong echo at 5 symbols leaves 7 percent of its power at lag 14 (measured in
+  `tests/delay_spread_tests.cpp`), which a faded burst can lift over 1/8.
+- **Derotate with the frequency training kept.** The estimate uses the carrier estimate in
+  the `BodyAcquisition` it is given. A fade can bias acquisition's estimate; the walkthrough
+  copies the acquisition and puts the training's frequency in it before measuring.
 - **The primitives are the streaming API.** A receiver that tests one rolling position a
   step uses them directly, with the same conventions as the batch scan.
 
 ---
 
-*Companion to `modem/m110a/audio-front-end-explainer.md`, the stage before this one. The
-preamble's structure, the designators and the countdown, as the transmitter builds them,
-are in `modem/m110a/body-waveform-and-scrambler-explainer.md`.*
+*Companion to `modem/m110a/audio-front-end-explainer.md`, the stage before this one, and
+`modem/m110a/receiver-core-equalizer-explainer.md`, the stage after it. The preamble's
+structure, the designators and the countdown, as the transmitter builds them, are in
+`modem/m110a/body-waveform-and-scrambler-explainer.md`.*
