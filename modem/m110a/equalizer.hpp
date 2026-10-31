@@ -72,8 +72,8 @@ private:
 // Adaptation algorithm for the probe-trained DFE. NLMS converges over many
 // tens of symbol periods, which loses fast-fading channels between probes;
 // RLS (exponentially weighted recursive least squares) converges in roughly
-// twice the tap count and is the fielded-receiver family (Kalman/RLS DFEs in
-// the reference survey). RLS costs O(taps^2) per trained symbol and an
+// twice the tap count; the receiver adapts with NLMS and never selects RLS,
+// which is kept as an option. RLS costs O(taps^2) per trained symbol and an
 // (ff+fb)^2 complex P matrix.
 enum class DfeAdaptation : std::uint8_t
 {

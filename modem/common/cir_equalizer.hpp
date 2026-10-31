@@ -70,7 +70,7 @@ template <std::size_t TapsPerPolyphase, std::size_t Rows> struct CirPolyphasePro
     std::size_t taps{};
 };
 
-// The Rev B geometry (unchanged type, unchanged solver below).
+// The geometry the receiver solves.
 using CirPolyphaseProblem = CirPolyphaseProblemT<cir_polyphase_taps, cir_maximum_rows>;
 
 // Scratch for the Hermitian solves (the largest is Nf x Nf complex).
@@ -95,9 +95,7 @@ struct CirLayout
     std::size_t postcursor{};
     std::size_t support{};
 
-    // The even sub-channel's advance in T/2 taps: half the precursor. Named so the
-    // psp_channel and sequence_frame_detector walks share the one derivation instead
-    // of repeating precursor / 2U.
+    // The even sub-channel's advance in T/2 taps: half the precursor.
     [[nodiscard]] constexpr std::size_t even_advance() const noexcept { return precursor / 2U; }
 };
 
