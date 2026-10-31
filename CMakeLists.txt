@@ -37,6 +37,7 @@ add_library(modem_core STATIC
     modem/m110a/interleaver.cpp
     modem/common/cir_equalizer.cpp
     modem/m110a/equalizer.cpp
+    modem/m110a/receiver.cpp
 )
 target_include_directories(modem_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
