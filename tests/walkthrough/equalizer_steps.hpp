@@ -8,6 +8,7 @@
 #include "modem/m110a/body_waveform.hpp"
 #include "modem/m110a/receiver.hpp"
 #include "modem/m110a/synchronization.hpp"
+#include "tests/support/front_end_harness.hpp"
 #include "tests/support/test_waveform.hpp"
 #include "tests/walkthrough/first_path_steps.hpp"
 
@@ -72,6 +73,10 @@ struct Burst
 // Any burst's audio, received the same way; `truth` is the transmitter's record of what it sent
 // (equalizer_compare renders its own bursts through the bench's channel and uses this).
 [[nodiscard]] Result<Burst> receive_audio(std::string id, BodyMode mode, std::span<const float> audio, const ::modem_test::TestWaveform& truth);
+// A burst from a committed pass of the front end and the acquisition that found it (the runner
+// has both already). `sent` is the transmitter's record when there is one; without it the burst
+// holds no truth, and walk_body measures the probes only.
+[[nodiscard]] Burst burst_from(std::string id, BodyMode mode, const ::modem_test::FrontEndRunner& committed, const BodyAcquisition& acquired, const ::modem_test::BurstTruth* sent);
 
 // The receiver trained on a burst's preamble.
 struct Trained
@@ -101,12 +106,17 @@ struct Frame
 };
 
 // The body walked block by block. Decoding the symbols back into the message is Part 7's
-// (soft demapping and the decoder), so the walk stops at the equalizer's decisions.
+// (soft demapping and the decoder), so the walk stops at the equalizer's decisions. With what
+// was sent, every block of the burst, each frame checked; without it, every whole block the
+// audio holds after the body starts (a long tail of noise counts too), and only the probes,
+// fixed by the standard, are measured.
 struct Body
 {
-    std::vector<Frame> frames{};
+    std::vector<Frame> frames{}; // with what was sent only
     std::size_t data_symbols{};
     std::size_t data_errors{};
+    std::size_t blocks{};
+    float probe_error{}; // the receiver's own mean squared error on the probes, over the blocks
 };
 
 [[nodiscard]] Result<Body> walk_body(const Burst& burst, Trained& trained);

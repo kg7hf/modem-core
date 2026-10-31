@@ -109,19 +109,7 @@ Result<Burst> receive(std::string id, BodyMode mode, std::span<const float> audi
         return status;
     }
 
-    Burst burst{.id = std::move(id), .mode = mode, .acquired = found};
-    burst.symbols = on_time_symbols(committed);
-    burst.half_symbols.reserve(committed.symbols().size() * 2U);
-    for (const auto& symbol : committed.symbols())
-    {
-        burst.half_symbols.push_back(symbol.early);
-        burst.half_symbols.push_back(symbol.on_time);
-    }
-    const auto& sent = truth.bursts.front();
-    burst.sent = sent.tribits;
-    burst.sent_preamble_symbols = sent.preamble_symbols;
-    burst.payload = sent.payload;
-    return burst;
+    return burst_from(std::move(id), mode, committed, found, &truth.bursts.front());
 }
 
 Result<TestWaveform> transmit(BodyMode mode)
@@ -228,6 +216,25 @@ Result<Burst> receive_audio(std::string id, BodyMode mode, std::span<const float
     return receive(std::move(id), mode, audio, truth);
 }
 
+Burst burst_from(std::string id, BodyMode mode, const FrontEndRunner& committed, const BodyAcquisition& acquired, const BurstTruth* sent)
+{
+    Burst burst{.id = std::move(id), .mode = mode, .acquired = acquired};
+    burst.symbols = on_time_symbols(committed);
+    burst.half_symbols.reserve(committed.symbols().size() * 2U);
+    for (const auto& symbol : committed.symbols())
+    {
+        burst.half_symbols.push_back(symbol.early);
+        burst.half_symbols.push_back(symbol.on_time);
+    }
+    if (sent != nullptr)
+    {
+        burst.sent = sent->tribits;
+        burst.sent_preamble_symbols = sent->preamble_symbols;
+        burst.payload = sent->payload;
+    }
+    return burst;
+}
+
 Result<Burst> receive_clean()
 {
     const BodyMode mode{DataRate::bps600, BodyInterleave::long_block};
@@ -315,16 +322,32 @@ Result<Body> walk_body(const Burst& burst, Trained& trained)
         return plan_result.error();
     }
     const BodyBlockPlan& plan = plan_result.value();
+    if (plan.unknown_symbols_per_probe == 0U || plan.known_symbols_per_probe == 0U)
+    {
+        // 75 bps decides a 32-symbol group at once and sends no probes between them.
+        return Status{StatusCode::unavailable, "this mode has no data frames and no probes"};
+    }
     const auto block_symbols = plan.transmitted_symbols;
-    const auto blocks = (burst.sent.size() - burst.sent_preamble_symbols) / block_symbols;
+    const bool known = !burst.sent.empty();
     const auto first_body = burst.acquired.first_body_symbol;
+    const auto heard_symbols = burst.half_symbols.size() / 2U;
+    std::size_t blocks{};
+    if (known)
+    {
+        blocks = (burst.sent.size() - burst.sent_preamble_symbols) / block_symbols;
+    }
+    else if (heard_symbols > first_body)
+    {
+        blocks = (heard_symbols - first_body) / block_symbols;
+    }
     if ((first_body + blocks * block_symbols) * 2U > burst.half_symbols.size())
     {
         return Status{StatusCode::buffer_too_small, "the recording ends before the burst's last block"};
     }
 
     std::vector<IQSample> equalized(block_symbols);
-    Body body;
+    Body body{.blocks = blocks};
+    float probe_error_sum{};
 
     for (std::size_t block = 0U; block < blocks; ++block)
     {
@@ -333,6 +356,11 @@ Result<Body> walk_body(const Burst& burst, Trained& trained)
         if (const auto status = trained.receiver->equalize_block_fractional(samples, plan, equalized); !status.is_ok())
         {
             return status;
+        }
+        probe_error_sum += trained.receiver->last_block_probe_error();
+        if (!known)
+        {
+            continue;
         }
 
         // Each frame's data decisions against what was sent, and its probe's squared error.
@@ -357,6 +385,7 @@ Result<Body> walk_body(const Burst& burst, Trained& trained)
             body.frames.push_back(row);
         }
     }
+    body.probe_error = blocks == 0U ? 0.0F : probe_error_sum / as_real(blocks);
     return body;
 }
 

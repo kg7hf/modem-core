@@ -6,7 +6,8 @@
 // =============================================================================
 // The runner is how a reader runs the code on a message or a recording of their own, so
 // its chain is tested like any stage: the WAV file in and out, the walkthrough's burst
-// found where the bench put it, the clock learned, and a saved recording read back.
+// found where the bench put it, the clock learned, a saved recording read back, and the
+// equalizer's window and decisions on one path, on a 5 ms second path, and on a recording.
 // =============================================================================
 
 #include "modem/common/convert.hpp"
@@ -28,6 +29,8 @@ using namespace modem_test;
 using ::modem::common::as_real;
 using ::modem::common::BodyInterleave;
 using ::modem::common::DataRate;
+using ::modem::m110a::BodyDataEqualizer;
+using ::modem::m110a::BodyMode;
 
 namespace
 {
@@ -151,6 +154,60 @@ TEST_CASE("On the walkthrough's one-path line the Part 5 line keeps the anchor w
     CHECK_FALSE(path.precursor_search);
 }
 
+TEST_CASE("On the walkthrough's one-path line the Part 6 line keeps the default window and decides every data symbol right", "[runner][chain][equalizer]")
+{
+    const auto report = run_chain(walkthrough_spec());
+    REQUIRE(report.has_value());
+    REQUIRE(report.value().equalizer.has_value());
+    const auto& equalizer = *report.value().equalizer;
+    REQUIRE(equalizer.status.is_ok());
+    CHECK(equalizer.delay_spread == 0U);
+    const auto default_window = ::modem::m110a::select_body_receiver_geometry(0U);
+    CHECK(equalizer.geometry.feedforward_taps == default_window.feedforward_taps);
+    CHECK(equalizer.geometry.cursor == default_window.cursor);
+    CHECK(equalizer.geometry.feedback_taps == default_window.feedback_taps);
+    CHECK_FALSE(equalizer.long_window);
+    CHECK_FALSE(equalizer.retrained);
+    REQUIRE_FALSE(equalizer.engines.empty());
+    // The chain made the burst, so every engine's decisions are checked against what was sent.
+    for (const auto& engine : equalizer.engines)
+    {
+        REQUIRE(engine.status.is_ok());
+        REQUIRE(engine.data_errors.has_value());
+        CHECK(engine.data_symbols > 0U);
+    }
+    const auto& adaptive = equalizer.engines.front();
+    CHECK(adaptive.engine == BodyDataEqualizer::adaptive);
+    CHECK(*adaptive.data_errors == 0U);
+    CHECK(equalizer.engines.size() == (::modem::m110a::body_receiver_engine_available(BodyDataEqualizer::cir_mmse) ? 2U : 1U));
+}
+
+TEST_CASE("Through a 5 ms second path the Part 6 line takes the long window and trains again on it", "[runner][chain][equalizer]")
+{
+    // 300L through two-path fading, the second path 5 ms behind (12 symbols) and 1 Hz of
+    // Doppler spread, 20 dB SNR: Table XX's long-delay geometry.
+    auto spec = walkthrough_spec();
+    spec.mode = BodyMode{DataRate::bps300, BodyInterleave::long_block};
+    spec.channel.snr_db = 20.0F;
+    spec.channel.carrier_offset_hz.reset();
+    spec.channel.fading = FadingSpec{.delay_ms = 5.0F, .doppler_spread_hz = 1.0F};
+    const auto report = run_chain(spec);
+    REQUIRE(report.has_value());
+    print(report.value());
+    REQUIRE(report.value().equalizer.has_value());
+    const auto& equalizer = *report.value().equalizer;
+    REQUIRE(equalizer.status.is_ok());
+    CHECK(equalizer.delay_spread > ::modem::m110a::body_receiver_default_delay_symbols);
+    CHECK(equalizer.long_window);
+    CHECK(equalizer.retrained);
+    CHECK(equalizer.geometry.feedforward_taps == ::modem::m110a::select_body_receiver_geometry(equalizer.delay_spread).feedforward_taps);
+    REQUIRE_FALSE(equalizer.engines.empty());
+    const auto& adaptive = equalizer.engines.front();
+    REQUIRE(adaptive.status.is_ok());
+    REQUIRE(adaptive.data_errors.has_value());
+    CHECK(as_real(*adaptive.data_errors) < 0.1F * as_real(adaptive.data_symbols));
+}
+
 TEST_CASE("At 1000 ppm Part 3's loop slips and the committed receiver learns the clock", "[runner][chain][clock]")
 {
     auto spec = walkthrough_spec();
@@ -226,4 +283,30 @@ TEST_CASE("A recording the runner saved gives the same burst when read back", "[
     CHECK(second.recognition.mode.interleave == first.recognition.mode.interleave);
     CHECK(second.first_preamble_symbol == first.first_preamble_symbol);
     CHECK(second.first_body_symbol == first.first_body_symbol);
+}
+
+TEST_CASE("On a recording with nothing to compare against the Part 6 line measures the probes", "[runner][chain][equalizer][wav]")
+{
+    const TemporaryFile heard("runner_tests_heard_equalizer.wav");
+    auto spec = walkthrough_spec();
+    spec.wav_out = heard.path();
+    REQUIRE(run_chain(spec).has_value());
+
+    ChainSpec recorded;
+    recorded.wav_in = spec.wav_out;
+    const auto report = run_chain(recorded);
+    REQUIRE(report.has_value());
+    REQUIRE(report.value().equalizer.has_value());
+    const auto& equalizer = *report.value().equalizer;
+    REQUIRE(equalizer.status.is_ok());
+    CHECK(equalizer.delay_spread == 0U);
+    REQUIRE_FALSE(equalizer.engines.empty());
+    const auto& adaptive = equalizer.engines.front();
+    REQUIRE(adaptive.status.is_ok());
+    // No transmitter's record, so no decisions counted; the probes are known, so their error is.
+    CHECK_FALSE(adaptive.data_errors.has_value());
+    CHECK(adaptive.blocks == 1U); // "Hi" in 600L is one interleaver block
+    std::println("the read-back recording: mean probe error {:.3f} over {} block", adaptive.probe_error, adaptive.blocks);
+    CHECK(adaptive.probe_error > 0.0F);
+    CHECK(adaptive.probe_error < 0.5F);
 }
