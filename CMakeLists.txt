@@ -115,6 +115,7 @@ add_library(modem_test_bench STATIC
     tests/walkthrough/first_path_cases.cpp
     tests/walkthrough/first_path_observe.cpp
     tests/walkthrough/first_path_steps.cpp
+    tests/walkthrough/equalizer_steps.cpp
     tests/walkthrough/front_end_steps.cpp)
 target_link_libraries(modem_test_bench PUBLIC modem_core)
 if(NOT MODEM_PRINT_LINKS)
@@ -144,6 +145,13 @@ add_executable(first_path_demo tests/first_path_demo.cpp)
 target_link_libraries(first_path_demo PRIVATE modem_test_bench)
 target_compile_definitions(first_path_demo PRIVATE MODEM_FIRST_PATH_DATA="${PROJECT_SOURCE_DIR}/test-data/first-path-v1")
 modem_copy_runtime(first_path_demo)
+
+# Part 6's walkthrough: the delay spread, the window, training, and both equalizers on the
+# same recordings.
+add_executable(equalizer_demo tests/equalizer_demo.cpp)
+target_link_libraries(equalizer_demo PRIVATE modem_test_bench)
+target_compile_definitions(equalizer_demo PRIVATE MODEM_FIRST_PATH_DATA="${PROJECT_SOURCE_DIR}/test-data/first-path-v1")
+modem_copy_runtime(equalizer_demo)
 
 # The runner: every stage published so far, end to end, on your own message or a WAV file.
 # Each article adds its stage.
@@ -183,6 +191,12 @@ if(MODEM_BUILD_TESTS)
     add_executable(delay_spread_tests tests/delay_spread_tests.cpp)
     target_link_libraries(delay_spread_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
     modem_copy_runtime(delay_spread_tests)
+
+    # Part 6's walkthrough: the clean burst always; the recordings with the article data.
+    add_executable(equalizer_walkthrough_tests tests/equalizer_walkthrough_tests.cpp)
+    target_link_libraries(equalizer_walkthrough_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
+    target_compile_definitions(equalizer_walkthrough_tests PRIVATE MODEM_FIRST_PATH_DATA="${PROJECT_SOURCE_DIR}/test-data/first-path-v1")
+    modem_copy_runtime(equalizer_walkthrough_tests)
 
     add_executable(first_path_tests tests/first_path_tests.cpp tests/first_path_manifest_tests.cpp)
     target_link_libraries(first_path_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
@@ -265,10 +279,12 @@ if(MODEM_BUILD_TESTS)
     catch_discover_tests(front_end_tests TEST_SPEC "[report]" TEST_PREFIX "report: " PROPERTIES LABELS report)
     catch_discover_tests(acquisition_tests TEST_PREFIX "acquisition: ")
     catch_discover_tests(delay_spread_tests TEST_PREFIX "delay_spread: ")
+    catch_discover_tests(equalizer_walkthrough_tests TEST_SPEC "~[recordings]" TEST_PREFIX "equalizer: ")
     catch_discover_tests(first_path_tests TEST_SPEC "~[recordings]" TEST_PREFIX "first_path: ")
     # The recordings' tests: with the article data on, a missing or unusable package fails them.
     if(MODEM_ARTICLE_DATA)
         catch_discover_tests(first_path_tests TEST_SPEC "[recordings]" TEST_PREFIX "first-path: " PROPERTIES LABELS first-path)
+        catch_discover_tests(equalizer_walkthrough_tests TEST_SPEC "[recordings]" TEST_PREFIX "equalizer-recordings: " PROPERTIES LABELS first-path)
     endif()
     catch_discover_tests(runner_tests TEST_PREFIX "runner: ")
     catch_discover_tests(transmit_chain_tests TEST_PREFIX "transmit: ")
