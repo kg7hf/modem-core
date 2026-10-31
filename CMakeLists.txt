@@ -153,6 +153,11 @@ target_link_libraries(equalizer_demo PRIVATE modem_test_bench)
 target_compile_definitions(equalizer_demo PRIVATE MODEM_FIRST_PATH_DATA="${PROJECT_SOURCE_DIR}/test-data/first-path-v1")
 modem_copy_runtime(equalizer_demo)
 
+# The two equalizers on the same bursts through the bench's channel, row by row.
+add_executable(equalizer_compare tests/equalizer_compare.cpp)
+target_link_libraries(equalizer_compare PRIVATE modem_test_bench)
+modem_copy_runtime(equalizer_compare)
+
 # The runner: every stage published so far, end to end, on your own message or a WAV file.
 # Each article adds its stage.
 add_executable(runner tests/runner.cpp)
@@ -228,7 +233,7 @@ endif()
 
 # --- Apply the warning/tooling flags to our own targets (GCC/Clang). ---
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    set(MODEM_OWN_TARGETS modem_core tx_demo modem_test_bench front_end_demo acquisition_demo first_path_demo equalizer_demo runner)
+    set(MODEM_OWN_TARGETS modem_core tx_demo modem_test_bench front_end_demo acquisition_demo first_path_demo equalizer_demo equalizer_compare runner)
     if(MODEM_BUILD_TESTS)
         list(APPEND MODEM_OWN_TARGETS front_end_tests acquisition_tests delay_spread_tests first_path_tests equalizer_walkthrough_tests equalizer_tests runner_tests transmit_chain_tests units_tests)
     endif()

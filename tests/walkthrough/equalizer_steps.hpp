@@ -8,11 +8,13 @@
 #include "modem/m110a/body_waveform.hpp"
 #include "modem/m110a/receiver.hpp"
 #include "modem/m110a/synchronization.hpp"
+#include "tests/support/test_waveform.hpp"
 #include "tests/walkthrough/first_path_steps.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -67,6 +69,9 @@ struct Burst
 
 [[nodiscard]] Result<Burst> receive_recording(const Pack& pack, std::string_view id, std::string& diagnostic);
 [[nodiscard]] Result<Burst> receive_clean();
+// Any burst's audio, received the same way; `truth` is the transmitter's record of what it sent
+// (equalizer_compare renders its own bursts through the bench's channel and uses this).
+[[nodiscard]] Result<Burst> receive_audio(std::string id, BodyMode mode, std::span<const float> audio, const ::modem_test::TestWaveform& truth);
 
 // The receiver trained on a burst's preamble.
 struct Trained

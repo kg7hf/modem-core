@@ -223,6 +223,11 @@ Result<Burst> receive_recording(const Pack& pack, std::string_view id, std::stri
     return receive(std::string{id}, manifest->mode, audio.value(), truth.value());
 }
 
+Result<Burst> receive_audio(std::string id, BodyMode mode, std::span<const float> audio, const TestWaveform& truth)
+{
+    return receive(std::move(id), mode, audio, truth);
+}
+
 Result<Burst> receive_clean()
 {
     const BodyMode mode{DataRate::bps600, BodyInterleave::long_block};
