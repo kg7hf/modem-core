@@ -35,8 +35,18 @@ add_library(modem_core STATIC
     modem/m110a/synchronization.cpp
     modem/m110a/demapper.cpp
     modem/m110a/interleaver.cpp
+    modem/common/cir_equalizer.cpp
+    modem/m110a/equalizer.cpp
 )
 target_include_directories(modem_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+# The model-based (cir_mmse) body equalizer is a runtime choice for a host build; an embedded
+# build leaves it out, with its ~14 KiB of state on every receiver (Part 6). The macro is
+# PUBLIC because it changes receiver.hpp's layout, so every consumer must agree.
+option(M110_BODY_RECEIVER_CIR_ENGINE "Compile the runtime-selectable channel-estimate (cir_mmse) body equalizer engine" ON)
+if(M110_BODY_RECEIVER_CIR_ENGINE)
+    target_compile_definitions(modem_core PUBLIC M110_BODY_RECEIVER_CIR_ENGINE=1)
+endif()
 
 # The runtime rules from "The rules I build by" travel with the library: no exceptions
 # and no RTTI. They are PUBLIC, so tx_demo and any other consumer build the same way.
