@@ -40,6 +40,9 @@ private:
     float mSpare{};
 };
 
+// White Gaussian noise of standard deviation sigma on each of I and Q.
+void add_awgn(MutableIQSampleSpan samples, float sigma, DeterministicRng& rng) noexcept;
+
 struct WattersonConfig
 {
     float sample_rate_hz{48000.0F};

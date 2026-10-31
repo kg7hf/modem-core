@@ -60,6 +60,14 @@ float DeterministicRng::gaussian() noexcept
     return magnitude * std::cos(angle);
 }
 
+void add_awgn(MutableIQSampleSpan samples, float sigma, DeterministicRng& rng) noexcept
+{
+    for (auto& sample : samples)
+    {
+        sample += IQSample{sigma * rng.gaussian(), sigma * rng.gaussian()};
+    }
+}
+
 Status WattersonChannel::configure(const WattersonConfig& config) noexcept
 {
     if (config.sample_rate_hz <= 0.0F || config.doppler_spread_hz <= 0.0F || config.path_delay_samples >= maximum_delay_samples || config.direct_path_gain < 0.0F || config.delayed_path_gain < 0.0F)

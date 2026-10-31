@@ -179,6 +179,11 @@ if(MODEM_BUILD_TESTS)
     target_link_libraries(acquisition_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
     modem_copy_runtime(acquisition_tests)
 
+    # Part 6: the delay-spread estimate and the window it selects.
+    add_executable(delay_spread_tests tests/delay_spread_tests.cpp)
+    target_link_libraries(delay_spread_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
+    modem_copy_runtime(delay_spread_tests)
+
     add_executable(first_path_tests tests/first_path_tests.cpp tests/first_path_manifest_tests.cpp)
     target_link_libraries(first_path_tests PRIVATE modem_test_bench Catch2::Catch2WithMain)
     target_compile_definitions(first_path_tests PRIVATE MODEM_FIRST_PATH_DATA="${PROJECT_SOURCE_DIR}/test-data/first-path-v1")
@@ -259,6 +264,7 @@ if(MODEM_BUILD_TESTS)
     catch_discover_tests(front_end_tests TEST_SPEC "[long]" TEST_PREFIX "long: " PROPERTIES LABELS long)
     catch_discover_tests(front_end_tests TEST_SPEC "[report]" TEST_PREFIX "report: " PROPERTIES LABELS report)
     catch_discover_tests(acquisition_tests TEST_PREFIX "acquisition: ")
+    catch_discover_tests(delay_spread_tests TEST_PREFIX "delay_spread: ")
     catch_discover_tests(first_path_tests TEST_SPEC "~[recordings]" TEST_PREFIX "first_path: ")
     # The recordings' tests: with the article data on, a missing or unusable package fails them.
     if(MODEM_ARTICLE_DATA)
