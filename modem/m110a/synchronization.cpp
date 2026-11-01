@@ -47,9 +47,10 @@ WORKED EXAMPLE / DEEP DIVE
 The full step-by-step walkthrough - with the demo's own numbers, equations,
 fading-failure modes, and debugging signals - lives in the standalone explainer:
     modem/m110a/synchronization-and-acquisition-explainer.md
-Explained in the article series, Part 4 (acquisition: finding the burst) and
-Part 5 (the first path); their unit tests are tests/acquisition_tests.cpp and
-tests/first_path_tests.cpp.
+Explained in the article series, Part 4 (acquisition: finding the burst),
+Part 5 (the first path) and Part 6 (the equalizer: the delay spread); their unit
+tests are tests/acquisition_tests.cpp, tests/first_path_tests.cpp and
+tests/delay_spread_tests.cpp.
 
 HIGH-LEVEL PASS THROUGH THIS FILE
 ---------------------------------
@@ -61,6 +62,9 @@ HIGH-LEVEL PASS THROUGH THIS FILE
  6. acquire_body_preamble()                  scan -> consensus -> earliest-path
                                              re-anchor -> vote -> precursor walk
                                              -> vote, one named function a step.
+ 7. estimate_body_preamble_delay_spread()    how far behind the anchor the
+                                             channel reaches -> the equalizer's
+                                             window (Part 6).
 ================================================================================
 */
 
@@ -890,8 +894,8 @@ static bool walk_to_earlier_path(IQSampleSpan input, IQSampleSpan reference, std
 // though it carries half the burst energy. Search for an earlier path across
 // EVERY preamble segment from the winner's detected segment to its body
 // boundary: the noncoherent multi-segment prefix correlation at negative lags
-// (the method of the delay-spread estimate later in the series, mirrored to
-// the precursor side), with the reference's own period-8 autocorrelation sidelobes removed. A
+// (the estimate_body_preamble_delay_spread method, mirrored to the precursor
+// side), with the reference's own period-8 autocorrelation sidelobes removed. A
 // significant precursor path moves the anchor to it and re-decodes the
 // designators and countdown there, where the former anchor is combinable
 // postcursor energy. The search and its outcome are kept in winner.anchor.
@@ -1015,6 +1019,223 @@ Result<BodyAcquisition> acquire_body_preamble(IQSampleSpan symbol_rate_input, co
     auto winner = vote_mode_and_boundary(symbol_rate_input, reference, earliest, config);
     anchor_to_precursor_path(symbol_rate_input, reference, config, winner);
     return vote_mode_and_boundary(symbol_rate_input, reference, winner, config);
+}
+
+// A path is significant when its noncoherent correlation power reaches this
+// fraction of the strongest path (about -9 dB), well above the ~1/288
+// cross-correlation floor of the prefix sequence.
+static constexpr float significant_path_fraction = 0.125F;
+// Lags 0-2 belong to the main path: a fractional-symbol path splits across
+// adjacent lags, so an echo is only counted from lag 3 on.
+static constexpr std::size_t main_path_lobe_lags = 3U;
+// The lag table's length, the one BodyDelaySpreadProfile carries.
+static constexpr std::size_t lag_table_size = 16U;
+
+// Each echo casts the same period-8 sidelobes the main path does, eight and
+// nine symbols behind it, and the main-path subtraction leaves them in the
+// profile: a strong echo at lag 5 reads again at lag 14 at a few percent of its
+// power, which a faded burst lifts over the significance fraction. The
+// largest-lag rule would take that sidelobe as a
+// path, so they are cancelled before the scan, the strongest echo first, with
+// the main path's arithmetic: every significant lag beyond the lobe gives up
+// (sidelobe[d] / sidelobe[0]) x its power from the lag d symbols behind it,
+// clamped at zero. At most one pass per lag, no allocation.
+static void cancel_echo_sidelobes(std::array<float, lag_table_size>& lag_powers, const std::array<float, lag_table_size>& sidelobe_powers, std::size_t maximum_delay_symbols,
+                                  float significant_power) noexcept
+{
+    std::array<bool, lag_table_size> sidelobes_removed{};
+
+    for (std::size_t pass = main_path_lobe_lags; pass <= maximum_delay_symbols; ++pass)
+    {
+        std::size_t echo_lag = 0U;
+        float echo_power = 0.0F;
+
+        for (std::size_t lag = main_path_lobe_lags; lag <= maximum_delay_symbols; ++lag)
+        {
+            if (!sidelobes_removed[lag] && lag_powers[lag] > echo_power)
+            {
+                echo_power = lag_powers[lag];
+                echo_lag = lag;
+            }
+        }
+
+        if (echo_lag == 0U || echo_power < significant_power)
+        {
+            return;
+        }
+
+        sidelobes_removed[echo_lag] = true;
+
+        for (std::size_t lag = echo_lag + 1U; lag <= maximum_delay_symbols; ++lag)
+        {
+            lag_powers[lag] = std::max(0.0F, lag_powers[lag] - (sidelobe_powers[lag - echo_lag] / sidelobe_powers[0]) * echo_power);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// estimate_body_preamble_delay_spread
+// -----------------------------------------------------------------------------
+// 50K view: Measure how many whole symbols of multipath spread the channel has,
+//   so the caller can pick the equalizer geometry (short vs long) before training.
+// Detailed view: Correlate the known prefix at symbol lags 0..15, accumulated
+//   NONCOHERENTLY across every preamble segment (a path can vanish for one
+//   segment under fast fading). Subtract the reference's own period-8
+//   autocorrelation sidelobes, the main path's and then each echo's (they
+//   otherwise masquerade as echoes 8-9 lags behind their path). Return the
+//   largest lag >= 3 whose surviving power reaches 12.5% (~-9dB) of the
+//   strongest path; 0 means a single clean path.
+// 5th-grade view: Clap once and time the echoes to learn how boomy the room is,
+//   so you bring the right-sized cleanup tool.
+// -----------------------------------------------------------------------------
+Result<std::size_t> estimate_body_preamble_delay_spread(IQSampleSpan symbol_rate_input, const BodyAcquisition& acquisition, std::size_t maximum_delay_symbols, BodyDelaySpreadProfile* profile) noexcept
+{
+    const auto segment = acquisition.detected_segment_symbol;
+
+    if (acquisition.recognition.state != BodyDesignatorState::supported || segment + prefix_symbols + maximum_delay_symbols > symbol_rate_input.size())
+    {
+        return Status{StatusCode::invalid_argument, "delay-spread estimate needs the full acquisition prefix plus the delay search span"};
+    }
+
+    const auto& reference = prefix_reference();
+    const auto frequency_radians = acquisition.frequency_offset_hz * two_pi / acquisition.symbol_rate_hz;
+    float strongest_power = 0.0F;
+    std::size_t delay_spread = 0U;
+    std::array<float, 16U> lag_powers{};
+
+    if (maximum_delay_symbols >= lag_powers.size())
+    {
+        return Status{StatusCode::invalid_argument, "delay-spread search span exceeds the supported lag table"};
+    }
+
+    // The prefix chip patterns repeat with period eight, so the reference has
+    // deterministic autocorrelation sidelobes (notably near lags 8-9) that
+    // scale with the main path and would otherwise masquerade as an echo.
+    // Model the segment's clean continuation (the D1 block follows the
+    // prefix) and measure the structural sidelobe profile so it can be
+    // subtracted from the received lag powers.
+    std::array<IQSample, prefix_symbols + lag_powers.size()> extended_reference{};
+    {
+        SyncRandomizer extension_randomizer;
+
+        for (std::size_t index = 0U; index < prefix_symbols; ++index)
+        {
+            extended_reference[index] = reference[index];
+            extension_randomizer.advance();
+        }
+
+        const auto designators = body_designators(acquisition.recognition.mode);
+
+        if (!designators)
+        {
+            return designators.error();
+        }
+
+        const auto d1 = designators.value().d1;
+
+        for (std::size_t spread = 0U; spread < lag_powers.size(); ++spread)
+        {
+            const auto tribit = tribit_add(body_channel_symbol_tribit(d1, spread), extension_randomizer.next_tribit());
+            extended_reference[prefix_symbols + spread] = psk8_symbol(tribit);
+        }
+    }
+    std::array<float, 16U> sidelobe_powers{};
+
+    for (std::size_t lag = 0U; lag <= maximum_delay_symbols; ++lag)
+    {
+        for (std::size_t block = 0U; block < prefix_blocks; ++block)
+        {
+            IQSample correlation{};
+
+            for (std::size_t chip = 0U; chip < channel_symbol_chips; ++chip)
+            {
+                const auto index = block * channel_symbol_chips + chip;
+                correlation += extended_reference[index + lag] * std::conj(reference[index]);
+            }
+
+            sidelobe_powers[lag] += std::norm(correlation);
+        }
+    }
+
+    // Accumulate over every remaining preamble segment: under fast fading a
+    // path can vanish for the duration of one segment, so a single-segment
+    // profile under-reports the spread; the noncoherent multi-segment sum
+    // recovers it.
+    const auto segment_limit = std::min(symbol_rate_input.size(), acquisition.first_body_symbol);
+
+    // The per-chip rotation std::polar(1, frequency_radians*index) depends only
+    // on the symbol index, not on the lag or segment, so it is the same in every
+    // (lag, segment) pass below: compute the conjugated, derotated reference once.
+    std::array<IQSample, prefix_symbols> rotated_reference{};
+
+    for (std::size_t index = 0U; index < prefix_symbols; ++index)
+    {
+        rotated_reference[index] = std::conj(reference[index] * std::polar(1.0F, frequency_radians * as_real(index)));
+    }
+
+    std::size_t accumulated_segments = 0U;
+
+    for (std::size_t segment_start = segment; segment_start + prefix_symbols + maximum_delay_symbols <= segment_limit; segment_start += first_segment_symbols)
+    {
+        ++accumulated_segments;
+
+        for (std::size_t lag = 0U; lag <= maximum_delay_symbols; ++lag)
+        {
+            float power = 0.0F;
+
+            for (std::size_t block = 0U; block < prefix_blocks; ++block)
+            {
+                IQSample correlation{};
+
+                for (std::size_t chip = 0U; chip < channel_symbol_chips; ++chip)
+                {
+                    const auto index = block * channel_symbol_chips + chip;
+                    correlation += symbol_rate_input[segment_start + lag + index] * rotated_reference[index];
+                }
+
+                power += std::norm(correlation);
+            }
+
+            lag_powers[lag] += power;
+        }
+    }
+
+    // Remove each lag's structural-sidelobe share of the main-path power, then
+    // take the largest lag outside the main-path lobe whose surviving power is
+    // still significant: the equalizer window has to reach the farthest
+    // significant path, not the strongest one (a strong echo at 5 symbols must
+    // not hide a weaker one at 12). A fractional-symbol path splits across
+    // adjacent lags, so the lobe spans lags 0-2.
+    for (std::size_t lag = 1U; lag <= maximum_delay_symbols; ++lag)
+    {
+        lag_powers[lag] = std::max(0.0F, lag_powers[lag] - (sidelobe_powers[lag] / sidelobe_powers[0]) * lag_powers[0]);
+    }
+
+    for (std::size_t lag = 0U; lag <= maximum_delay_symbols; ++lag)
+    {
+        strongest_power = std::max(strongest_power, lag_powers[lag]);
+    }
+
+    const float significant_power = significant_path_fraction * strongest_power;
+    cancel_echo_sidelobes(lag_powers, sidelobe_powers, maximum_delay_symbols, significant_power);
+
+    for (std::size_t lag = maximum_delay_symbols; lag >= main_path_lobe_lags; --lag)
+    {
+        if (lag_powers[lag] >= significant_power)
+        {
+            delay_spread = lag;
+            break;
+        }
+    }
+
+    if (profile != nullptr)
+    {
+        profile->lag_powers = lag_powers;
+        profile->strongest_power = strongest_power;
+        profile->segments = accumulated_segments;
+    }
+
+    return delay_spread;
 }
 
 } // namespace modem::m110a

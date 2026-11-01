@@ -99,7 +99,9 @@ and [`tests/front_end_tests.cpp`](../tests/front_end_tests.cpp), and acquisition
 [`tests/acquisition_tests.cpp`](../tests/acquisition_tests.cpp), and the first path's are
 [`tests/first_path_demo.cpp`](../tests/first_path_demo.cpp) and
 [`tests/first_path_tests.cpp`](../tests/first_path_tests.cpp), on the article's recordings
-(configure with `-DMODEM_ARTICLE_DATA=ON`); each pair shares the
+(configure with `-DMODEM_ARTICLE_DATA=ON`), and the equalizer's are
+[`tests/equalizer_demo.cpp`](../tests/equalizer_demo.cpp) and
+[`tests/equalizer_walkthrough_tests.cpp`](../tests/equalizer_walkthrough_tests.cpp), on the same recordings; each pair shares the
 walkthrough steps in [`tests/walkthrough/`](../tests/walkthrough/) and the test bench in
 [`tests/support/`](../tests/support/). The runner, [`tests/runner.cpp`](../tests/runner.cpp),
 runs every stage so far end to end on your own message or a WAV file; its tests are
@@ -140,6 +142,9 @@ the receiver articles.
 8. The [first path article](articles/06-first-path.md), with `first_path_demo` running on the
    article's recordings (configure with `-DMODEM_ARTICLE_DATA=ON`), then the acquisition
    explainer's sections on the anchoring.
+9. The [equalizer article](articles/07-equalizer.md), with `equalizer_demo` running on the
+   same recordings, then the acquisition explainer's delay-spread section and the
+   [equalizer explainer](../modem/m110a/receiver-core-equalizer-explainer.md).
 
 Each explainer follows a common shape: a 50,000-foot view, a 5th-grade version, where
 the module sits in the pipeline, a function-by-function walkthrough, a small worked
@@ -149,12 +154,12 @@ debugging, and notes for maintainers.
 Then do what the [transmit-chain article](articles/03-transmit-chain.md) asks: open the
 standard beside the code and check the numbers yourself.
 
-## The receive side so far, and next: the equalizer
+## The receive side so far, and next: soft demapping and the decoder
 
 The transmitter is the easy half; everything about its signal is known in advance. The
 receiver starts with none of that. Here is the receive chain at the level the
-introduction describes it. The front end, acquisition and the earliest-path anchor are here
-now; the delay-spread estimate and the equalizer are next.
+introduction describes it. The front end, acquisition, the earliest-path anchor, the delay-spread
+estimate and the equalizer are here now; soft demapping and the decoder are next.
 
 ```mermaid
 flowchart TD
@@ -162,7 +167,7 @@ flowchart TD
   B --> C["Acquisition: find the preamble, read the mode and countdown, locate the body (Part 4)"]
   C --> C2["Earliest-path anchor: start on the first path, not its echo (Part 5)"]
   C2 --> D["Delay-spread estimate -> choose the equalizer geometry (Part 6)"]
-  D --> E["Equalize: adaptive DFE / CIR-MMSE / turbo (host) (Part 6)"]
+  D --> E["Equalize: adaptive DFE / CIR-MMSE (Part 6); the turbo loop, host (Part 7)"]
   E --> F["Dewhiten + soft-demap: 8-PSK symbol -> soft bits (LLRs)"]
   F --> G["Deinterleave: channel order -> encoder order"]
   G --> H["Repetition combine (300 / 150 bps)"]

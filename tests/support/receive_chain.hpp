@@ -4,6 +4,7 @@
 #pragma once
 
 #include "modem/common/status.hpp"
+#include "modem/m110a/receiver.hpp"
 #include "modem/m110a/synchronization.hpp"
 #include "modem/m110a/transmitter.hpp"
 #include "tests/support/front_end_harness.hpp"
@@ -14,6 +15,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 // =============================================================================
 // receive_chain.hpp - the receive chain end to end, for the runner
@@ -24,7 +26,9 @@
 // acquisition finds the burst in them with the phase search on, reads its mode and
 // countdown, and from the first candidate the receiver turns the search off and lets the
 // front end's rate integrator learn the clock; Part 5's earliest-path anchoring decides which
-// path the burst is anchored on. Each article adds its stage here.
+// path the burst is anchored on; Part 6's equalizer measures the delay spread, sizes its
+// window from it, trains on the preamble and decides the body's symbols. Each article adds its
+// stage here.
 // run_chain() returns what every stage found, print() shows it, and runner_tests checks
 // the same report.
 // =============================================================================
@@ -104,6 +108,36 @@ struct FirstPathReport
     float precursor_fraction{};
 };
 
+// Part 6, one engine through the body. With what was sent, its data decisions against the
+// transmitter's symbols; without it, only its mean squared error on the probes, which are
+// fixed by the standard and need no record.
+struct EngineReport
+{
+    modem::m110a::BodyDataEqualizer engine{};
+    modem::common::Status status{}; // why the engine did not walk the body, if it did not
+    std::size_t blocks{};
+    std::optional<std::size_t> data_errors{}; // with what was sent only
+    std::size_t data_symbols{};
+    float probe_error{};
+};
+
+// Part 6: the receiver trained on the preamble as a receiver runs it (the default window, the
+// delay spread measured with the frequency training chose, the long window only if the
+// measurement asks for it), then each engine through the body.
+struct EqualizerReport
+{
+    modem::common::Status status{}; // why training failed, if it did
+    std::size_t delay_spread{};
+    modem::m110a::BodyReceiverGeometry geometry{};
+    bool long_window{};
+    bool retrained{};
+    bool race_escalated{};
+    std::size_t race_guesses{};
+    float acquisition_frequency_hz{};
+    float training_frequency_hz{};
+    std::vector<EngineReport> engines{};
+};
+
 struct ChainReport
 {
     ChainSpec spec{};
@@ -112,6 +146,7 @@ struct ChainReport
     FrontEndReport front_end{};
     AcquisitionReport acquisition{};
     std::optional<FirstPathReport> first_path{};
+    std::optional<EqualizerReport> equalizer{};
 };
 
 [[nodiscard]] modem::common::Result<ChainReport> run_chain(const ChainSpec& spec);

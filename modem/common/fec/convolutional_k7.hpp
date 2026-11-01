@@ -34,13 +34,15 @@ struct EncodedPair
 class ConvolutionalEncoderK7
 {
 public:
-    explicit constexpr ConvolutionalEncoderK7(std::uint8_t initial_state = 0U) noexcept : mState{static_cast<std::uint8_t>(initial_state & 0x3FU)} {}
+    static constexpr std::uint8_t state_mask = 0x3FU; // the six state bits (K - 1) of the 64-state trellis
+
+    explicit constexpr ConvolutionalEncoderK7(std::uint8_t initial_state = 0U) noexcept : mState{static_cast<std::uint8_t>(initial_state & state_mask)} {}
 
     [[nodiscard]] EncodedPair push(std::uint8_t bit) noexcept;
 
     [[nodiscard]] std::uint8_t state() const noexcept { return mState; }
 
-    void reset(std::uint8_t state = 0U) noexcept { mState = static_cast<std::uint8_t>(state & 0x3FU); }
+    void reset(std::uint8_t state = 0U) noexcept { mState = static_cast<std::uint8_t>(state & state_mask); }
 
 private:
     std::uint8_t mState{};

@@ -166,7 +166,8 @@ template <class T> [[nodiscard]] constexpr T element_or(std::span<const T> s, In
     return k ? s[*k] : fallback;
 }
 
-// gsl::at: a checked subscript over any sized random-access range.
+// gsl::at: a checked subscript over any sized random-access range. The element is reached
+// through ranges::next, so a range whose iterator is a raw pointer adds no pointer arithmetic.
 template <std::ranges::random_access_range R>
     requires std::ranges::sized_range<R>
 [[nodiscard]] constexpr decltype(auto) at(R&& r, Index i) noexcept
@@ -176,7 +177,7 @@ template <std::ranges::random_access_range R>
     {
         convert_detail::violated("at: index out of range");
     }
-    return std::ranges::begin(std::forward<R>(r))[narrow<std::ranges::range_difference_t<R>>(*k)];
+    return *std::ranges::next(std::ranges::begin(std::forward<R>(r)), narrow<std::ranges::range_difference_t<R>>(*k));
 }
 
 // A cast-free signed-reach guard: base - back, only when it stays in [0, limit).

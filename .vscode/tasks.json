@@ -95,6 +95,21 @@
       "problemMatcher": []
     },
     {
+      "label": "Run equalizer_demo",
+      "type": "process",
+      "dependsOn": "Build",
+      "command": "${command:cmake.buildDirectory}/equalizer_demo",
+      "windows": {
+        "command": "${command:cmake.buildDirectory}/equalizer_demo.exe"
+      },
+      "args": [],
+      "options": {
+        "cwd": "${command:cmake.buildDirectory}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
       "label": "Run runner",
       "type": "process",
       "dependsOn": "Build",

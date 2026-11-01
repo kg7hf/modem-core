@@ -29,11 +29,17 @@ namespace modem::common
 
 struct TimingRecoveryConfig
 {
+    // The defaults: a 64-symbol search for the sampling phase, a loop gain of 0.02 per symbol
+    // and a step correction clamped to a quarter of a sample.
+    static constexpr std::size_t default_phase_search_symbols = 64U;
+    static constexpr float default_loop_gain = 0.02F;
+    static constexpr float default_maximum_step_correction = 0.25F;
+
     std::size_t samples_per_symbol{2U};
     std::size_t first_symbol_sample{};
-    std::size_t phase_search_symbols{64U};
-    float loop_gain{0.02F};
-    float maximum_step_correction{0.25F};
+    std::size_t phase_search_symbols{default_phase_search_symbols};
+    float loop_gain{default_loop_gain};
+    float maximum_step_correction{default_maximum_step_correction};
 };
 
 struct TimingRecoveryProgress

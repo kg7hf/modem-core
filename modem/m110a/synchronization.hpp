@@ -22,10 +22,13 @@
 // rolling position at a time (make_body_prefix_reference,
 // estimate_body_prefix_frequency_radians, body_prefix_correlation,
 // characterize_body_candidate, body_candidate_is_valid) and the reference's own
-// sidelobe model (body_precursor_sidelobe_powers).
-// Explained in the article series, Part 4 (acquisition: finding the burst) and
-// Part 5 (the first path); their unit tests are tests/acquisition_tests.cpp and
-// tests/first_path_tests.cpp.
+// sidelobe model (body_precursor_sidelobe_powers); and the delay-spread
+// estimate (estimate_body_preamble_delay_spread with its profile), which sizes
+// the equalizer before training.
+// Explained in the article series, Part 4 (acquisition: finding the burst),
+// Part 5 (the first path) and Part 6 (the equalizer); their unit tests are
+// tests/acquisition_tests.cpp, tests/first_path_tests.cpp and
+// tests/delay_spread_tests.cpp.
 //
 // The full teaching walkthrough - pipeline diagram, worked example on the
 // demo's own output, equations, fading-failure modes, and debugging signals - is in
@@ -140,5 +143,28 @@ void make_body_prefix_reference(std::span<::modem::common::IQSample, body_preamb
 // profile subtracts (sidelobe[lag] / sidelobe[0]) x power[0] so the main
 // path's sidelobes are not read as an earlier path.
 [[nodiscard]] std::array<float, 16U> body_precursor_sidelobe_powers(IQSampleSpan reference, std::size_t maximum_lag) noexcept;
+
+// Estimates the channel delay spread in whole symbols at the acquired
+// segment: the known acquisition prefix is correlated at symbol lags
+// 0..maximum_delay_symbols, each lag scored as the noncoherent sum of its
+// nine 32-chip block correlations so a fading path still registers, and the
+// largest lag whose power reaches the significance fraction of the strongest
+// path is returned (0 for a single-path channel), after each significant
+// echo's own sidelobes have been cancelled. Streaming owners use this
+// to select the equalizer geometry before training.
+// Optional diagnostic view of the estimator's decision inputs:
+// the sidelobe-corrected noncoherent lag-power profile it thresholded, the
+// strongest lag power, and how many preamble segments were accumulated. Pure
+// copies of the estimator's own intermediates - requesting it never changes
+// the returned delay spread.
+struct BodyDelaySpreadProfile
+{
+    std::array<float, 16U> lag_powers{};
+    float strongest_power{};
+    std::size_t segments{};
+};
+
+[[nodiscard]] Result<std::size_t> estimate_body_preamble_delay_spread(IQSampleSpan symbol_rate_input, const BodyAcquisition& acquisition, std::size_t maximum_delay_symbols = 15U,
+                                                                      BodyDelaySpreadProfile* profile = nullptr) noexcept;
 
 } // namespace modem::m110a

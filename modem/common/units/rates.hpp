@@ -84,7 +84,9 @@ template <HertzSource F> [[nodiscard]] constexpr Real radians_per_symbol(F frequ
 }
 
 // The carrier-step check: the exact float the shipped code produced for the body carrier.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers): this assertion checks the exact IEEE-754 bit pattern at the carrier and sample rate
 static_assert(std::bit_cast<std::uint32_t>(radians_per_sample(Frequency{1800.0, Hz}, SampleRate{48000U})) == 0x3E714639U);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers): the shipped sample rate and symbol rate and their ratio are what this assertion checks
 static_assert(samples_per_symbol(SampleRate{48000U}, Baud{2400U}) == 20U);
 
 } // namespace modem::common

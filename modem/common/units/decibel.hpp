@@ -31,14 +31,23 @@ namespace modem::common
 namespace decibel_detail
 {
 
+// The decibel definitions: 10 log10 of a power ratio and 20 log10 of an amplitude (field)
+// ratio, both in decades of 10; dBm is dBW + 30 (a milliwatt is a thousandth of a watt);
+// dBi is dBd + 2.15 (the half-wave dipole's gain over an isotropic radiator).
+inline constexpr Real decade = static_cast<Real>(10);
+inline constexpr Real power_decibels_per_decade = static_cast<Real>(10);
+inline constexpr Real amplitude_decibels_per_decade = static_cast<Real>(20);
+inline constexpr Real dbm_minus_dbw = static_cast<Real>(30);
+inline constexpr Real dbi_minus_dbd = static_cast<Real>(2.15);
+
 [[nodiscard]] inline Real to_db_power(Real linear) noexcept
 {
-    return static_cast<Real>(10) * (rmath::log(linear) / std::numbers::ln10_v<Real>);
+    return power_decibels_per_decade * (rmath::log(linear) / std::numbers::ln10_v<Real>);
 }
 
 [[nodiscard]] inline Real from_db_power(Real db) noexcept
 {
-    return rmath::pow(static_cast<Real>(10), db / static_cast<Real>(10));
+    return rmath::pow(decade, db / power_decibels_per_decade);
 }
 
 } // namespace decibel_detail
@@ -67,7 +76,7 @@ struct PowerTag
         case Unit::dBW:
             return value;
         case Unit::dBm:
-            return value - static_cast<Real>(30);
+            return value - decibel_detail::dbm_minus_dbw;
         case Unit::Watts:
             return decibel_detail::to_db_power(value);
         }
@@ -82,7 +91,7 @@ struct PowerTag
         case Unit::dBW:
             return db;
         case Unit::dBm:
-            return db + static_cast<Real>(30);
+            return db + decibel_detail::dbm_minus_dbw;
         case Unit::Watts:
             return decibel_detail::from_db_power(db);
         }
@@ -104,9 +113,9 @@ struct GainTag
     // A relative quantity (an antenna gain), so it adds and negates in the dB domain.
     static constexpr bool is_absolute = false;
 
-    [[nodiscard]] static constexpr Real to_db(Real value, Unit unit) noexcept { return unit == Unit::dBd ? value + static_cast<Real>(2.15) : value; }
+    [[nodiscard]] static constexpr Real to_db(Real value, Unit unit) noexcept { return unit == Unit::dBd ? value + decibel_detail::dbi_minus_dbd : value; }
 
-    [[nodiscard]] static constexpr Real from_db(Real db, Unit unit) noexcept { return unit == Unit::dBd ? db - static_cast<Real>(2.15) : db; }
+    [[nodiscard]] static constexpr Real from_db(Real db, Unit unit) noexcept { return unit == Unit::dBd ? db - decibel_detail::dbi_minus_dbd : db; }
 };
 
 struct RatioTag
@@ -249,12 +258,12 @@ using Db = Decibel<RatioTag>;
 // shipped `20.0F * std::log10(ratio)` (std::log10 on a float is log10f), via rmath.
 [[nodiscard]] inline Real db_from_amplitude_ratio(Real ratio) noexcept
 {
-    return static_cast<Real>(20) * rmath::log10(ratio);
+    return decibel_detail::amplitude_decibels_per_decade * rmath::log10(ratio);
 }
 
 [[nodiscard]] inline Real amplitude_ratio(Real db) noexcept
 {
-    return rmath::pow(static_cast<Real>(10), db / static_cast<Real>(20));
+    return rmath::pow(decibel_detail::decade, db / decibel_detail::amplitude_decibels_per_decade);
 }
 
 } // namespace modem::common

@@ -29,7 +29,7 @@ All `-D` arguments must precede `-P`.
 | Suite | Selection | Downloads |
 | --- | --- | --- |
 | `quick` (default) | Registered unit/golden tests, excluding long/report labels; includes package-validation negative tests | None |
-| `article` | `first-path` recording tests and demo | Exact committed release pack, if absent |
+| `article` | `first-path` recording tests (Parts 5 and 6) and their demos | Exact committed release pack, if absent |
 | `full` | All registered public tests, including long/report and recording cases | Exact committed release pack, if absent |
 
 `full` describes this public revision's suite. It is not the private compliance

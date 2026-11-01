@@ -92,4 +92,16 @@ IQSample psk8_symbol(std::uint8_t tribit) noexcept
     return constellation[tribit & 7U];
 }
 
+std::uint8_t psk8_hard_demapper(IQSample symbol) noexcept
+{
+    auto phase = std::arg(symbol);
+
+    if (phase < 0.0F)
+    {
+        phase += two_pi;
+    }
+
+    return low_bits<3>(std::lround(phase / pi_over_four)); // the nearest octant, mod 8
+}
+
 } // namespace modem::m110a

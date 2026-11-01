@@ -9,6 +9,7 @@
 #include "tests/support/front_end_harness.hpp"
 #include "tests/support/test_waveform.hpp"
 #include "tests/support/wav_file.hpp"
+#include "tests/walkthrough/equalizer_steps.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -38,6 +39,7 @@ using ::modem::m110a::acquire_body_preamble;
 using ::modem::m110a::BodyAcquisition;
 using ::modem::m110a::BodyAcquisitionConfig;
 using ::modem::m110a::BodyAudioStreamFrontend;
+using ::modem::m110a::BodyDataEqualizer;
 using ::modem::m110a::BodyMode;
 using ::modem::m110a::TimingRateMode;
 
@@ -202,6 +204,66 @@ double clock_ppm_from_rate(double rate) noexcept
     return (nominal / (nominal + rate) - 1.0) * 1.0e6;
 }
 
+// Part 6: the committed pass's symbols to the equalizer, trained and walked the way the Part 6
+// walkthrough does it, once for each engine this build has. The transmitter's symbols go with
+// them when the chain made the burst and acquisition read the mode it was sent in.
+EqualizerReport equalize(const ChainSpec& spec, const Line& line, const BodyAcquisition& found, const FrontEndRunner& committed)
+{
+    namespace steps = equalizer_steps;
+    const auto mode = found.recognition.mode;
+    const bool known = line.burst && mode.data_rate == spec.mode.data_rate && mode.interleave == spec.mode.interleave;
+    const auto burst = steps::burst_from(mode_text(mode), mode, committed, found, known ? &*line.burst : nullptr);
+
+    EqualizerReport report{.acquisition_frequency_hz = found.frequency_offset_hz};
+    for (const auto engine : {BodyDataEqualizer::adaptive, BodyDataEqualizer::cir_mmse})
+    {
+        if (!::modem::m110a::body_receiver_engine_available(engine))
+        {
+            continue;
+        }
+        auto trained = steps::train(burst, engine);
+        if (!trained)
+        {
+            if (engine == BodyDataEqualizer::adaptive)
+            {
+                report.status = trained.error();
+                return report;
+            }
+            report.engines.push_back(EngineReport{.engine = engine, .status = trained.error()});
+            continue;
+        }
+        const auto& kept = trained.value();
+        if (engine == BodyDataEqualizer::adaptive)
+        {
+            report.delay_spread = kept.delay_spread;
+            report.geometry = kept.geometry;
+            report.long_window = kept.geometry.feedforward_taps != ::modem::m110a::select_body_receiver_geometry(0U).feedforward_taps;
+            report.retrained = kept.retrained;
+            report.race_escalated = kept.race.escalated;
+            report.race_guesses = kept.race.count;
+            report.training_frequency_hz = kept.training_frequency_hz;
+        }
+        EngineReport walked{.engine = engine};
+        const auto body = steps::walk_body(burst, trained.value());
+        if (!body)
+        {
+            walked.status = body.error();
+        }
+        else
+        {
+            walked.blocks = body.value().blocks;
+            walked.data_symbols = body.value().data_symbols;
+            walked.probe_error = body.value().probe_error;
+            if (known)
+            {
+                walked.data_errors = body.value().data_errors;
+            }
+        }
+        report.engines.push_back(walked);
+    }
+    return report;
+}
+
 // Part 4: the front end with the phase search on, as a receiver runs it while it looks for a
 // preamble, and acquisition over its symbols. Then the front end once more, committed at the
 // first candidate, a segment into the preamble: the search off from there and the rate
@@ -273,6 +335,15 @@ Status acquire(const ChainSpec& spec, const Line& line, ChainReport& report)
     {
         acquisition.grid = grid_report(committed, *line.burst, clock_ppm);
     }
+    // The front end still holds its filter's delay of the audio, and a generated line (or a
+    // recording cut close) ends with the burst: a moment of quiet line after the audio lets the
+    // last symbols out for the equalizer.
+    const std::vector<float> quiet(narrow<std::size_t>(first_on_time_sample) + samples_per_symbol, 0.0F);
+    if (const auto status = committed.feed(quiet); !status.is_ok())
+    {
+        return status;
+    }
+    report.equalizer = equalize(spec, line, found, committed);
     return Status::success();
 }
 
@@ -328,6 +399,55 @@ std::string channel_text(const ChainSpec& spec, std::size_t lead)
         text = "clean";
     }
     return std::format("{}; {:.1f} s of line before the burst, seed {}", text, as_real(lead) / as_real(sample_rate_hz), channel.seed);
+}
+
+const char* engine_name(BodyDataEqualizer engine) noexcept
+{
+    return engine == BodyDataEqualizer::cir_mmse ? "CIR-MMSE" : "adaptive";
+}
+
+void print_equalizer(const EqualizerReport& equalizer)
+{
+    if (!equalizer.status.is_ok())
+    {
+        std::println("== Part 6  the equalizer: training failed ({})", equalizer.status.message);
+        return;
+    }
+    const auto& g = equalizer.geometry;
+    std::println("== Part 6  the equalizer: delay spread {} symbols -> the {} window, {} taps, reference tap {}, {} feedback{}", equalizer.delay_spread, equalizer.long_window ? "long" : "default",
+                 g.feedforward_taps, g.cursor, g.feedback_taps, equalizer.retrained ? "; trained again on it" : "");
+    if (equalizer.race_escalated && equalizer.race_guesses < 2U)
+    {
+        std::println("           training: acquisition's {} Hz stayed above the floor, but no other guess differed from it, so it kept {} Hz", hz_text(equalizer.acquisition_frequency_hz),
+                     hz_text(equalizer.training_frequency_hz));
+    }
+    else if (equalizer.race_escalated)
+    {
+        std::println("           training: acquisition's {} Hz stayed above the floor, so the receiver raced {} guesses and kept {} Hz", hz_text(equalizer.acquisition_frequency_hz),
+                     equalizer.race_guesses, hz_text(equalizer.training_frequency_hz));
+    }
+    else
+    {
+        std::println("           training: acquisition's {} Hz reached the floor, so no other guess trained", hz_text(equalizer.training_frequency_hz));
+    }
+    for (const auto& engine : equalizer.engines)
+    {
+        const auto* name = engine_name(engine.engine);
+        if (!engine.status.is_ok())
+        {
+            std::println("           {}: no walk through the body ({})", name, engine.status.message);
+        }
+        else if (engine.data_errors)
+        {
+            std::println("           {}: {} of {} data symbols decided wrong before the decoder ({:.1f}%)", name, *engine.data_errors, engine.data_symbols,
+                         100.0F * as_real(*engine.data_errors) / as_real(std::max<std::size_t>(engine.data_symbols, 1U)));
+        }
+        else
+        {
+            std::println("           {}: mean probe error {:.3f} over {} block{}; counting wrong decisions needs the transmitted symbols", name, engine.probe_error, engine.blocks,
+                         engine.blocks == 1U ? "" : "s");
+        }
+    }
 }
 
 void print_grid(const GridReport& grid)
@@ -524,7 +644,11 @@ void print(const ChainReport& report)
             std::println("           earliest-path anchoring moved it {} symbols earlier, to an earlier group", moved);
         }
     }
-    std::println("== next: the equalizer (Part 6)");
+    if (report.equalizer)
+    {
+        print_equalizer(*report.equalizer);
+    }
+    std::println("== next: soft demapping and the decoder (Part 7)");
 }
 
 } // namespace modem_test
