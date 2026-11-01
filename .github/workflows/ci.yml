@@ -124,7 +124,8 @@ jobs:
         with:
           submodules: true # Catch2, the unit-test framework (external/catch2)
       - run: sudo apt-get update && sudo apt-get install -y g++-14 ninja-build cmake
-      - run: cmake -B build -G Ninja -DMODEM_STACK_USAGE=ON -DCMAKE_CXX_COMPILER=g++-14
+      # The embedded build: the host-only CIR-MMSE engine is left out, as it is on the target.
+      - run: cmake -B build -G Ninja -DMODEM_STACK_USAGE=ON -DM110_BODY_RECEIVER_CIR_ENGINE=OFF -DCMAKE_CXX_COMPILER=g++-14
       - run: cmake --build build
       - name: No function's stack frame exceeds 4 KB
         run: python3 tools/check_stack_usage.py build 4096
