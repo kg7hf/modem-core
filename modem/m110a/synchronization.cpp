@@ -1073,6 +1073,48 @@ static void cancel_echo_sidelobes(std::array<float, lag_table_size>& lag_powers,
     }
 }
 
+// Structural sidelobes of the main path at positive lags: the prefix reference
+// against its own clean continuation (the D1 block follows the prefix). Its own
+// function, so the extended reference and the estimate's rotated reference never
+// share a stack frame.
+template <std::size_t Lags> static std::array<float, Lags> trailing_sidelobe_powers(IQSampleSpan reference, std::uint8_t d1, std::size_t maximum_lag) noexcept
+{
+    std::array<IQSample, prefix_symbols + Lags> extended_reference{};
+    SyncRandomizer extension_randomizer;
+
+    for (std::size_t index = 0U; index < prefix_symbols; ++index)
+    {
+        extended_reference[index] = reference[index];
+        extension_randomizer.advance();
+    }
+
+    for (std::size_t spread = 0U; spread < Lags; ++spread)
+    {
+        const auto tribit = tribit_add(body_channel_symbol_tribit(d1, spread), extension_randomizer.next_tribit());
+        extended_reference[prefix_symbols + spread] = psk8_symbol(tribit);
+    }
+
+    std::array<float, Lags> sidelobe_powers{};
+
+    for (std::size_t lag = 0U; lag <= maximum_lag; ++lag)
+    {
+        for (std::size_t block = 0U; block < prefix_blocks; ++block)
+        {
+            IQSample correlation{};
+
+            for (std::size_t chip = 0U; chip < channel_symbol_chips; ++chip)
+            {
+                const auto index = block * channel_symbol_chips + chip;
+                correlation += extended_reference[index + lag] * std::conj(reference[index]);
+            }
+
+            sidelobe_powers[lag] += std::norm(correlation);
+        }
+    }
+
+    return sidelobe_powers;
+}
+
 // -----------------------------------------------------------------------------
 // estimate_body_preamble_delay_spread
 // -----------------------------------------------------------------------------
@@ -1114,48 +1156,14 @@ Result<std::size_t> estimate_body_preamble_delay_spread(IQSampleSpan symbol_rate
     // Model the segment's clean continuation (the D1 block follows the
     // prefix) and measure the structural sidelobe profile so it can be
     // subtracted from the received lag powers.
-    std::array<IQSample, prefix_symbols + lag_powers.size()> extended_reference{};
+    const auto designators = body_designators(acquisition.recognition.mode);
+
+    if (!designators)
     {
-        SyncRandomizer extension_randomizer;
-
-        for (std::size_t index = 0U; index < prefix_symbols; ++index)
-        {
-            extended_reference[index] = reference[index];
-            extension_randomizer.advance();
-        }
-
-        const auto designators = body_designators(acquisition.recognition.mode);
-
-        if (!designators)
-        {
-            return designators.error();
-        }
-
-        const auto d1 = designators.value().d1;
-
-        for (std::size_t spread = 0U; spread < lag_powers.size(); ++spread)
-        {
-            const auto tribit = tribit_add(body_channel_symbol_tribit(d1, spread), extension_randomizer.next_tribit());
-            extended_reference[prefix_symbols + spread] = psk8_symbol(tribit);
-        }
+        return designators.error();
     }
-    std::array<float, 16U> sidelobe_powers{};
 
-    for (std::size_t lag = 0U; lag <= maximum_delay_symbols; ++lag)
-    {
-        for (std::size_t block = 0U; block < prefix_blocks; ++block)
-        {
-            IQSample correlation{};
-
-            for (std::size_t chip = 0U; chip < channel_symbol_chips; ++chip)
-            {
-                const auto index = block * channel_symbol_chips + chip;
-                correlation += extended_reference[index + lag] * std::conj(reference[index]);
-            }
-
-            sidelobe_powers[lag] += std::norm(correlation);
-        }
-    }
+    const auto sidelobe_powers = trailing_sidelobe_powers<lag_powers.size()>(reference, designators.value().d1, maximum_delay_symbols);
 
     // Accumulate over every remaining preamble segment: under fast fading a
     // path can vanish for the duration of one segment, so a single-segment

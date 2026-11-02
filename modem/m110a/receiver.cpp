@@ -275,6 +275,13 @@ Status BodyAdaptiveReceiver::train_preamble_fractional(IQSampleSpan received_hal
 namespace
 {
 
+// The known tribit of a probe symbol: the probe's designator (0 for an ordinary
+// frame) spread over the symbol, except that a 20-symbol probe's last four are zero.
+[[nodiscard]] std::uint8_t probe_symbol_tribit(const BodyBlockPlan& plan, std::uint8_t known_value, std::size_t symbol) noexcept
+{
+    return plan.known_symbols_per_probe == 20U && symbol >= 16U ? std::uint8_t{0U} : body_channel_symbol_tribit(known_value, symbol);
+}
+
 #if M110_BODY_RECEIVER_CIR_ENGINE
 // Ridge-prior weight for the per-probe CIR solve: the Bayesian ratio of the
 // measurement noise to the per-tap prior mismatch, where the mismatch is the
@@ -1235,7 +1242,7 @@ Status BodyAdaptiveReceiver::equalize_frame_impl(IQSampleSpan received_samples, 
 
     for (std::size_t symbol = 0U; symbol < plan.known_symbols_per_probe; ++symbol)
     {
-        const auto probe_tribit = plan.known_symbols_per_probe == 20U && symbol >= 16U ? 0U : body_channel_symbol_tribit(known_value, symbol);
+        const auto probe_tribit = probe_symbol_tribit(plan, known_value, symbol);
         const auto tribit = tribit_add(probe_tribit, randomizer.next_tribit());
         const auto desired = psk8_symbol(tribit);
         make_equalizer_window(received_samples, received_index, samples_per_symbol, mCarrierTracker.phase_radians(), mCarrierTracker.frequency_radians_per_symbol(), mEqualizer, window);
@@ -1267,7 +1274,7 @@ Status BodyAdaptiveReceiver::equalize_frame_impl(IQSampleSpan received_samples, 
 
             for (std::size_t symbol = 0U; symbol < plan.known_symbols_per_probe; ++symbol)
             {
-                const auto probe_tribit = plan.known_symbols_per_probe == 20U && symbol >= 16U ? 0U : body_channel_symbol_tribit(known_value, symbol);
+                const auto probe_tribit = probe_symbol_tribit(plan, known_value, symbol);
                 const auto tribit = tribit_add(probe_tribit, replay_randomizer.next_tribit());
                 const auto desired = psk8_symbol(tribit);
                 make_equalizer_window(received_samples, probe_first_symbol + symbol, samples_per_symbol, replay_tracker.phase_radians(), replay_tracker.frequency_radians_per_symbol(), mEqualizer,
@@ -1588,6 +1595,8 @@ void BodyAdaptiveReceiver::seed_cir_state(IQSampleSpan received_samples, std::si
 
 Status BodyAdaptiveReceiver::equalize_block_cir(IQSampleSpan received_half_symbols, const BodyBlockPlan& plan, MutableIQSampleSpan equalized_symbols) noexcept
 {
+    // #lizard forgives: the host-only CIR-MMSE engine (M110_BODY_RECEIVER_CIR_ENGINE) is outside
+    // the embedded complexity gate, as CONTRIBUTING says.
     const auto layout = make_cir_layout(mEqualizer.feedforward_taps(), mFitWorkspace.support_precursor);
     const auto feedforward_taps = mEqualizer.feedforward_taps();
     const auto feedback_taps = mEqualizer.feedback_taps();
@@ -2242,6 +2251,8 @@ Status BodyAdaptiveReceiver::equalize_block_cir(IQSampleSpan received_half_symbo
 
 Status BodyAdaptiveReceiver::equalize_block_supervised_cir(IQSampleSpan received_half_symbols, const BodyBlockPlan& plan, BitSpan reference_tribits, MutableIQSampleSpan equalized_symbols) noexcept
 {
+    // #lizard forgives: the host-only CIR-MMSE engine (M110_BODY_RECEIVER_CIR_ENGINE) is outside
+    // the embedded complexity gate, as CONTRIBUTING says.
     const auto layout = make_cir_layout(mEqualizer.feedforward_taps(), mFitWorkspace.support_precursor);
     const auto feedforward_taps = mEqualizer.feedforward_taps();
     const auto feedback_taps = mEqualizer.feedback_taps();

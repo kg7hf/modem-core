@@ -91,7 +91,7 @@ or a standalone tool. CI turns them on.
 | Follows the C++ Core Guidelines | clang-tidy 19 (`.clang-tidy`) | `cmake -B build -DMODEM_CLANG_TIDY=ON && cmake --build build` |
 | Stays simple (avg complexity under six) | lizard | `lizard modem -l cpp --CCN 25` |
 | Is tested | gcov / gcovr | `cmake -B build -DMODEM_COVERAGE=ON && cmake --build build && ctest --test-dir build && gcovr --root . --exclude tests --exclude external` |
-| Bounded, known stack | `-fstack-usage` | `cmake -B build -DMODEM_STACK_USAGE=ON && cmake --build build && python tools/check_stack_usage.py build 4096` |
+| Bounded, known stack | `-fstack-usage` | `cmake -B build -DMODEM_STACK_USAGE=ON -DM110_BODY_RECEIVER_CIR_ENGINE=OFF && cmake --build build && python tools/check_stack_usage.py build 4096` |
 
 Formatting and warnings are hard gates: fix them before you push. clang-tidy and
 coverage are reported today and will ratchet into hard gates as the tree and the
@@ -117,5 +117,8 @@ the full modem; the hooks are set up here so it is not a retrofit later.
 - `clang-format` clean, `-DMODEM_WERROR=ON` build clean, `ctest` green.
 - New functions should keep clear of the complexity ceiling; the few that run high
   are the genuinely hard kernels, not a license to add more.
+- The CIR-MMSE equalizer engine is host-only (`M110_BODY_RECEIVER_CIR_ENGINE`, on by default
+  for the PC build). It is outside the embedded gates: the stack check builds without it, and
+  its three large functions carry `#lizard forgives`. Nothing else may.
 - The receiver functions that are only declared in the headers are intentionally
   unimplemented; they arrive with the receiver series. Do not stub them here.

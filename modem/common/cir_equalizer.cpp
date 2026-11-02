@@ -347,6 +347,8 @@ Status cir_polyphase_solve(const CirPolyphaseProblem& problem, float lambda, flo
 Status cir_mmse_dfe_solve(std::span<const IQSample> cir, const CirMmseGeometry& geometry, float noise_variance_effective, CirSolveScratch& scratch, std::span<IQSample> feedforward,
                           std::span<IQSample> feedback) noexcept
 {
+    // #lizard forgives: the host-only CIR-MMSE engine (M110_BODY_RECEIVER_CIR_ENGINE) is outside
+    // the embedded complexity gate, as CONTRIBUTING says.
     const auto taps = geometry.feedforward_taps;
     const auto support = geometry.precursor_taps + geometry.postcursor_taps + 1U;
 
